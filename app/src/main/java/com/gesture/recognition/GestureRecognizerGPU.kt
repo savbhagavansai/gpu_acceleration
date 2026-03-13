@@ -23,7 +23,7 @@ class GestureRecognizerGPU(private val context: Context) {
     // Components
     private val handDetector = HandDetectorGPU(context)
     private val landmarkDetector = HandLandmarkDetectorGPU(context)
-    private val gestureClassifier = ONNXInference(context)  // Keep existing ONNX (working!)
+    private val gestureClassifier = ONNXInference(context)
 
     // State
     private val sequenceBuffer = SequenceBuffer(Config.SEQUENCE_LENGTH)
@@ -38,7 +38,7 @@ class GestureRecognizerGPU(private val context: Context) {
      * Returns Task<Boolean> because GPU initialization is async
      */
     fun initialize(): Task<Boolean> {
-        Log.i(TAG,("Initializing Gesture Recognizer (GPU Pipeline)")
+        Log.i(TAG, "Initializing Gesture Recognizer (GPU Pipeline)")
 
         // Initialize hand detector (async)
         return handDetector.initialize().continueWithTask { detectorTask ->
@@ -58,7 +58,6 @@ class GestureRecognizerGPU(private val context: Context) {
 
                 // Initialize gesture classifier (sync - ONNX)
                 try {
-                    // Gesture classifier uses existing ONNX Runtime (already working!)
                     Log.i(TAG, "✓ Gesture classifier ready (ONNX NPU)")
                     Log.i(TAG, "✓ Complete pipeline initialized")
                     true
@@ -83,7 +82,7 @@ class GestureRecognizerGPU(private val context: Context) {
             val detectorTime = (System.nanoTime() - detectorStart) / 1_000_000.0
 
             if (detection == null) {
-                latestLandmarks = null  // Clear landmarks
+                latestLandmarks = null
                 return GestureResult(
                     gesture = "no_hand",
                     confidence = 0.0f,
@@ -106,7 +105,7 @@ class GestureRecognizerGPU(private val context: Context) {
             val landmarkTime = (System.nanoTime() - landmarkStart) / 1_000_000.0
 
             if (landmarkResult == null) {
-                latestLandmarks = null  // Clear landmarks
+                latestLandmarks = null
                 return GestureResult(
                     gesture = "no_landmarks",
                     confidence = 0.0f,
@@ -122,7 +121,7 @@ class GestureRecognizerGPU(private val context: Context) {
                 )
             }
 
-            // Step 3: Normalize landmarks (landmarkResult is guaranteed non-null here)
+            // Step 3: Normalize landmarks
             val landmarksFlat = flattenLandmarks(landmarkResult!!.landmarks)
             val normalized = LandmarkNormalizer.normalize(landmarksFlat)
 
