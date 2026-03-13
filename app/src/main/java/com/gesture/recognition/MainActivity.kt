@@ -345,10 +345,19 @@ class MainActivity : AppCompatActivity() {
      */
     private fun updateUI(result: GestureResult) {
         runOnUiThread {
-            // Update gesture overlay with landmarks from recognizer
-            gestureRecognizer?.latestLandmarks?.let { landmarks ->
-                gestureOverlay.updateLandmarks(landmarks, 1088, 1088)
-            }
+            // Update gesture overlay
+            gestureOverlay.updateData(
+                result = result,
+                landmarks = gestureRecognizer?.latestLandmarks,
+                fps = currentFps.toFloat(),
+                frameCount = frameCount,
+                bufferSize = (result.bufferProgress * 15).toInt(),
+                handDetected = result.handDetected,
+                imageWidth = 1088,
+                imageHeight = 1088,
+                rotation = 270,
+                mirrorHorizontal = true
+            )
 
             // Update status text
             val gesture = result.gesture

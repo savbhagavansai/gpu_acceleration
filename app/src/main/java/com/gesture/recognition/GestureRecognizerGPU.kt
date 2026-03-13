@@ -245,3 +245,4 @@ class GestureRecognizerGPU(private val context: Context) {
         FileLogger.i(TAG, "✓ Gesture Recognizer closed")
     }
 }
+
