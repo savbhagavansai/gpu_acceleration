@@ -63,20 +63,14 @@ class MainActivity : AppCompatActivity() {
 
         // Set up crash handler
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
-            FileLogger.e(TAG, "═══ APP CRASHED ═══")
-            FileLogger.e(TAG, "  Exception: ${throwable.javaClass.simpleName}: ${throwable.message}")
+            Log.e(TAG, "═══ APP CRASHED ═══")
+            Log.e(TAG, "  Exception: ${throwable.javaClass.simpleName}: ${throwable.message}")
             throwable.stackTrace.take(5).forEach { element ->
-                FileLogger.e(TAG, "    at ${element}")
+                Log.e(TAG, "    at ${element}")
             }
-            FileLogger.section("APP STOPPED: ${FileLogger.getCurrentTimestamp()}")
         }
 
         setContentView(R.layout.activity_main)
-
-        // Initialize FileLogger
-        FileLogger.initialize(this)
-        FileLogger.section("APP STARTED: ${FileLogger.getCurrentTimestamp()}")
-        FileLogger.section("Log file: ${FileLogger.getLogFilePath()}")
 
         // Initialize UI
         initializeUI()
@@ -116,11 +110,9 @@ class MainActivity : AppCompatActivity() {
      * Log device information
      */
     private fun logDeviceInfo() {
-        FileLogger.section("MainActivity onCreate()")
-        FileLogger.i(TAG, "App started - processing at 640x480")
-        FileLogger.i(TAG, "Android version: ${android.os.Build.VERSION.SDK_INT}")
-        FileLogger.i(TAG, "Device: ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}")
-        FileLogger.i(TAG, "Log location: Downloads/GestureRecognition/debug_log.txt")
+        Log.i(TAG, "App started - processing at 640x480")
+        Log.i(TAG, "Android version: ${android.os.Build.VERSION.SDK_INT}")
+        Log.i(TAG, "Device: ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}")
 
         // Check model files
         checkModelFiles()
@@ -135,12 +127,12 @@ class MainActivity : AppCompatActivity() {
             val handLandmarkSize = assets.openFd("mediapipe_hand-handlandmarkdetector.tflite").length / 1024
             val gestureSize = assets.openFd("gesture_model.onnx").length / 1024
 
-            FileLogger.i(TAG, "✓ Model files found:")
-            FileLogger.i(TAG, "  - HandDetector: ${handDetectorSize}KB")
-            FileLogger.i(TAG, "  - HandLandmark: ${handLandmarkSize}KB")
-            FileLogger.i(TAG, "  - Gesture: ${gestureSize}KB")
+            Log.i(TAG, "✓ Model files found:")
+            Log.i(TAG, "  - HandDetector: ${handDetectorSize}KB")
+            Log.i(TAG, "  - HandLandmark: ${handLandmarkSize}KB")
+            Log.i(TAG, "  - Gesture: ${gestureSize}KB")
         } catch (e: Exception) {
-            FileLogger.e(TAG, "✗ Model files missing!", e)
+            Log.e(TAG, "✗ Model files missing!", e)
             showError("Model files not found in assets!")
         }
     }
@@ -149,7 +141,7 @@ class MainActivity : AppCompatActivity() {
      * Initialize the app (called after permissions granted)
      */
     private fun initializeApp() {
-        FileLogger.section("Initializing Application")
+        Log.i(TAG, "Initializing Application")
 
         // Initialize gesture recognizer with GPU
         initializeGestureRecognizer()
@@ -161,7 +153,7 @@ class MainActivity : AppCompatActivity() {
      */
     private fun initializeGestureRecognizer() {
         try {
-            FileLogger.section("Initializing Gesture Recognizer")
+            Log.i(TAG,("Initializing Gesture Recognizer")
 
             runOnUiThread {
                 statusText.text = "Loading AI models..."
@@ -172,16 +164,16 @@ class MainActivity : AppCompatActivity() {
             // Initialize asynchronously
             gestureRecognizer?.initialize()?.addOnCompleteListener { task ->
                 if (task.isSuccessful && task.result == true) {
-                    FileLogger.i(TAG, "✓ Gesture Recognizer initialized successfully")
+                    Log.i(TAG, "✓ Gesture Recognizer initialized successfully")
 
                     // Log backend info
                     val detectorBackend = gestureRecognizer?.getDetectorBackend() ?: "UNKNOWN"
                     val landmarkBackend = gestureRecognizer?.getLandmarkBackend() ?: "UNKNOWN"
 
-                    FileLogger.i(TAG, "Backend configuration:")
-                    FileLogger.i(TAG, "  - Hand Detector: $detectorBackend")
-                    FileLogger.i(TAG, "  - Landmarks: $landmarkBackend")
-                    FileLogger.i(TAG, "  - Gesture: NPU (ONNX Runtime)")
+                    Log.i(TAG, "Backend configuration:")
+                    Log.i(TAG, "  - Hand Detector: $detectorBackend")
+                    Log.i(TAG, "  - Landmarks: $landmarkBackend")
+                    Log.i(TAG, "  - Gesture: NPU (ONNX Runtime)")
 
                     runOnUiThread {
                         statusText.text = "AI models loaded"
@@ -193,7 +185,7 @@ class MainActivity : AppCompatActivity() {
 
                 } else {
                     val error = task.exception?.message ?: "Unknown error"
-                    FileLogger.e(TAG, "Gesture Recognizer initialization failed: $error")
+                    Log.e(TAG, "Gesture Recognizer initialization failed: $error")
 
                     runOnUiThread {
                         statusText.text = "Initialization failed"
@@ -203,7 +195,7 @@ class MainActivity : AppCompatActivity() {
             }
 
         } catch (e: Exception) {
-            FileLogger.e(TAG, "Failed to create recognizer", e)
+            Log.e(TAG, "Failed to create recognizer", e)
             runOnUiThread {
                 showError("Initialization error: ${e.message}")
             }
@@ -214,7 +206,7 @@ class MainActivity : AppCompatActivity() {
      * Start camera
      */
     private fun startCamera() {
-        FileLogger.i(TAG, "Starting camera...")
+        Log.i(TAG, "Starting camera...")
 
         val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
 
@@ -223,14 +215,14 @@ class MainActivity : AppCompatActivity() {
                 cameraProvider = cameraProviderFuture.get()
                 bindCameraUseCases()
 
-                FileLogger.i(TAG, "✓ Camera started successfully")
+                Log.i(TAG, "✓ Camera started successfully")
 
                 runOnUiThread {
                     statusText.text = "Ready"
                 }
 
             } catch (e: Exception) {
-                FileLogger.e(TAG, "Camera start failed", e)
+                Log.e(TAG, "Camera start failed", e)
                 runOnUiThread {
                     showError("Camera error: ${e.message}")
                 }
@@ -278,7 +270,7 @@ class MainActivity : AppCompatActivity() {
             )
 
         } catch (e: Exception) {
-            FileLogger.e(TAG, "Camera binding failed", e)
+            Log.e(TAG, "Camera binding failed", e)
         }
     }
 
@@ -305,8 +297,8 @@ class MainActivity : AppCompatActivity() {
         try {
             // Log every 30th frame
             if (frameCount % 30 == 1) {
-                FileLogger.d(TAG, "────────────────────────────────────────────────────────────")
-                FileLogger.d(TAG, "Frame #$frameCount: ${imageProxy.width}x${imageProxy.height}, rotation=${imageProxy.imageInfo.rotationDegrees}")
+                Log.d(TAG, "────────────────────────────────────────────────────────────")
+                Log.d(TAG, "Frame #$frameCount: ${imageProxy.width}x${imageProxy.height}, rotation=${imageProxy.imageInfo.rotationDegrees}")
             }
 
             // Convert ImageProxy to Bitmap
@@ -322,7 +314,7 @@ class MainActivity : AppCompatActivity() {
             updateFPS()
 
         } catch (e: Exception) {
-            FileLogger.e(TAG, "Frame processing error", e)
+            Log.e(TAG, "Frame processing error", e)
         } finally {
             isProcessing = false
             imageProxy.close()
@@ -392,15 +384,15 @@ class MainActivity : AppCompatActivity() {
 
             // Log performance every 30th frame
             if (frameCount % 30 == 1) {
-                FileLogger.d(TAG, "Result received:")
-                FileLogger.d(TAG, "  - Landmarks: ${gestureRecognizer?.latestLandmarks?.size ?: 0} values")
-                FileLogger.d(TAG, "  - Gesture: ${result.gesture}")
-                FileLogger.d(TAG, "  - Confidence: ${result.confidence}")
-                FileLogger.d(TAG, "  - Buffer: ${(result.bufferProgress * 15).toInt()}/15")
-                FileLogger.d(TAG, "  - Detector: ${String.format("%.1f", result.handDetectorTimeMs)}ms")
-                FileLogger.d(TAG, "  - Landmark: ${String.format("%.1f", result.landmarksTimeMs)}ms")
-                FileLogger.d(TAG, "  - Total: ${String.format("%.1f", result.totalTimeMs)}ms")
-                FileLogger.d(TAG, "  - Was Tracking: ${result.wasTracking}")
+                Log.d(TAG, "Result received:")
+                Log.d(TAG, "  - Landmarks: ${gestureRecognizer?.latestLandmarks?.size ?: 0} values")
+                Log.d(TAG, "  - Gesture: ${result.gesture}")
+                Log.d(TAG, "  - Confidence: ${result.confidence}")
+                Log.d(TAG, "  - Buffer: ${(result.bufferProgress * 15).toInt()}/15")
+                Log.d(TAG, "  - Detector: ${String.format("%.1f", result.handDetectorTimeMs)}ms")
+                Log.d(TAG, "  - Landmark: ${String.format("%.1f", result.landmarksTimeMs)}ms")
+                Log.d(TAG, "  - Total: ${String.format("%.1f", result.totalTimeMs)}ms")
+                Log.d(TAG, "  - Was Tracking: ${result.wasTracking}")
             }
         }
     }
@@ -470,10 +462,10 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
 
-        FileLogger.section("MainActivity onDestroy()")
+        Log.i(TAG,("MainActivity onDestroy()")
 
         // Log final stats
-        FileLogger.i(TAG, "App closing - processed $frameCount frames")
+        Log.i(TAG, "App closing - processed $frameCount frames")
 
         // Close gesture recognizer
         gestureRecognizer?.close()
@@ -481,6 +473,6 @@ class MainActivity : AppCompatActivity() {
         // Shutdown camera executor
         cameraExecutor.shutdown()
 
-        FileLogger.section("APP STOPPED: ${FileLogger.getCurrentTimestamp()}")
+        Log.i(TAG,("APP STOPPED: ${FileLogger.getCurrentTimestamp()}")
     }
 }
