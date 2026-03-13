@@ -1,153 +1,255 @@
 package com.gesture.recognition
 
-import kotlin.math.*
-
 /**
- * Hand Tracking ROI Generator
+ * Region of Interest (ROI) for hand tracking
  *
- * Builds ROI from previous landmarks for tracking mode
- * Avoids running expensive detector when hand is already tracked
- *
- * Based on MediaPipe hand_landmarks_to_rect algorithm
+ * Represents a rectangular region in the image where the hand is located.
+ * Used for:
+ * - Cropping the image to focus on the hand
+ * - Tracking hand position between frames
+ * - Affine transformation for landmark detection
  */
-object HandTrackingROI {
-
-    private const val TAG = "HandTrackingROI"
-
-    // Same transformation constants as detector
-    private const val SCALE_X = 2.9f
-    private const val SCALE_Y = 2.9f
-    private const val SHIFT_X = 0.0f
-    private const val SHIFT_Y = -0.5f
+data class HandTrackingROI(
+    val centerX: Float,      // Center X coordinate in pixels
+    val centerY: Float,      // Center Y coordinate in pixels
+    val roiWidth: Float,     // ROI width in pixels
+    val roiHeight: Float,    // ROI height in pixels
+    val rotation: Float      // Rotation angle in degrees (clockwise)
+) {
 
     /**
-     * Build tracking ROI from landmarks
-     *
-     * Uses landmarks to calculate bounding box and rotation
-     * Much faster than running detector!
-     *
-     * @param landmarks Previous frame landmarks (21 × 3) in frame coordinates
-     * @param frameWidth Frame width
-     * @param frameHeight Frame height
-     * @return HandROI for next frame
+     * Get bounding box coordinates [left, top, right, bottom]
      */
-    fun buildTrackingROI(
-        landmarks: Array<FloatArray>,
-        frameWidth: Int,
-        frameHeight: Int
-    ): HandROI {
+    fun getBoundingBox(): FloatArray {
+        val left = centerX - roiWidth / 2
+        val top = centerY - roiHeight / 2
+        val right = centerX + roiWidth / 2
+        val bottom = centerY + roiHeight / 2
 
-        // Find bounding box of all landmarks
-        var xMin = Float.MAX_VALUE
-        var yMin = Float.MAX_VALUE
-        var xMax = Float.MIN_VALUE
-        var yMax = Float.MIN_VALUE
+        return floatArrayOf(left, top, right, bottom)
+    }
 
-        for (lm in landmarks) {
-            val x = lm[0]
-            val y = lm[1]
-            if (x < xMin) xMin = x
-            if (x > xMax) xMax = x
-            if (y < yMin) yMin = y
-            if (y > yMax) yMax = y
-        }
+    /**
+     * Get corner points of the ROI (accounting for rotation)
+     * Returns array of [x0, y0, x1, y1, x2, y2, x3, y3]
+     * Order: top-left, top-right, bottom-right, bottom-left
+     */
+    fun getCornerPoints(): FloatArray {
+        val halfWidth = roiWidth / 2
+        val halfHeight = roiHeight / 2
 
-        // Box dimensions (in pixels)
-        val boxW = xMax - xMin
-        val boxH = yMax - yMin
-        val boxCx = xMin + boxW / 2
-        val boxCy = yMin + boxH / 2
+        // Rotation in radians
+        val radians = Math.toRadians(rotation.toDouble()).toFloat()
+        val cos = Math.cos(radians.toDouble()).toFloat()
+        val sin = Math.sin(radians.toDouble()).toFloat()
 
-        // Calculate rotation from wrist → index finger MCP
-        // landmarks[0] = wrist
-        // landmarks[5] = index finger MCP
-        val wrist = landmarks[0]
-        val indexMcp = landmarks[5]
-
-        val dx = indexMcp[0] - wrist[0]
-        val dy = indexMcp[1] - wrist[1]
-
-        // MediaPipe rotation formula
-        val rotation = normalizeRadians(
-            PI.toFloat() / 2 - atan2(-dy, dx)
+        // Corner offsets (before rotation)
+        val corners = floatArrayOf(
+            -halfWidth, -halfHeight,  // Top-left
+            halfWidth, -halfHeight,   // Top-right
+            halfWidth, halfHeight,    // Bottom-right
+            -halfWidth, halfHeight    // Bottom-left
         )
 
-        // Normalize box to [0, 1]
-        val boxNormW = boxW / frameWidth
-        val boxNormH = boxH / frameHeight
-        val boxNormCx = boxCx / frameWidth
-        val boxNormCy = boxCy / frameHeight
+        // Apply rotation and translate to center
+        val rotatedCorners = FloatArray(8)
+        for (i in 0 until 4) {
+            val x = corners[i * 2]
+            val y = corners[i * 2 + 1]
 
-        // Apply transformation (same as detection ROI)
-        val (cxA, cyA) = if (abs(rotation) < 1e-6) {
-            Pair(
-                (boxNormCx + boxNormW * SHIFT_X) * frameWidth,
-                (boxNormCy + boxNormH * SHIFT_Y) * frameHeight
-            )
-        } else {
-            val xShift = frameWidth * boxNormW * SHIFT_X * cos(rotation) -
-                        frameHeight * boxNormH * SHIFT_Y * sin(rotation)
-            val yShift = frameWidth * boxNormW * SHIFT_X * sin(rotation) +
-                        frameHeight * boxNormH * SHIFT_Y * cos(rotation)
-            Pair(
-                boxNormCx * frameWidth + xShift,
-                boxNormCy * frameHeight + yShift
-            )
+            rotatedCorners[i * 2] = centerX + (x * cos - y * sin)
+            rotatedCorners[i * 2 + 1] = centerY + (x * sin + y * cos)
         }
 
-        // Square ROI (scale by longer side)
-        val longSide = maxOf(boxNormW * frameWidth, boxNormH * frameHeight)
-        val wA = longSide * SCALE_X
-        val hA = longSide * SCALE_Y
+        return rotatedCorners
+    }
 
-        // Calculate 4 corner points
-        val rectPoints = rotatedRectToPoints(cxA, cyA, wA, hA, rotation)
+    /**
+     * Check if ROI is valid (within image bounds)
+     */
+    fun isValid(imageWidth: Int, imageHeight: Int): Boolean {
+        val box = getBoundingBox()
+        return box[0] >= 0 && box[1] >= 0 &&
+               box[2] <= imageWidth && box[3] <= imageHeight
+    }
 
-        return HandROI(
-            rotation = rotation,
-            centerX = cxA,
-            centerY = cyA,
-            width = wA,
-            height = hA,
-            rectPoints = rectPoints,
-            frameWidth = frameWidth,   // ← ADD
-            frameHeight = frameHeight  // ← ADD
+    /**
+     * Clamp ROI to image bounds
+     */
+    fun clampToImage(imageWidth: Int, imageHeight: Int): HandTrackingROI {
+        val box = getBoundingBox()
+
+        val clampedLeft = box[0].coerceIn(0f, imageWidth.toFloat())
+        val clampedTop = box[1].coerceIn(0f, imageHeight.toFloat())
+        val clampedRight = box[2].coerceIn(0f, imageWidth.toFloat())
+        val clampedBottom = box[3].coerceIn(0f, imageHeight.toFloat())
+
+        val newCenterX = (clampedLeft + clampedRight) / 2
+        val newCenterY = (clampedTop + clampedBottom) / 2
+        val newWidth = clampedRight - clampedLeft
+        val newHeight = clampedBottom - clampedTop
+
+        return HandTrackingROI(
+            centerX = newCenterX,
+            centerY = newCenterY,
+            roiWidth = newWidth,
+            roiHeight = newHeight,
+            rotation = rotation
         )
     }
 
     /**
-     * Calculate 4 corners of rotated rectangle
+     * Expand ROI by a scale factor
+     * @param factor Scale factor (1.5 = 150% of original size)
      */
-    private fun rotatedRectToPoints(
-        cx: Float, cy: Float,
-        w: Float, h: Float,
-        rotation: Float
-    ): Array<FloatArray> {
-        val b = cos(rotation) * 0.5f
-        val a = sin(rotation) * 0.5f
-
-        val p0x = cx - a * h - b * w
-        val p0y = cy + b * h - a * w
-        val p1x = cx + a * h - b * w
-        val p1y = cy - b * h - a * w
-        val p2x = 2 * cx - p0x
-        val p2y = 2 * cy - p0y
-        val p3x = 2 * cx - p1x
-        val p3y = 2 * cx - p1y
-
-        return arrayOf(
-            floatArrayOf(p0x, p0y),  // bottom-left
-            floatArrayOf(p1x, p1y),  // top-left
-            floatArrayOf(p2x, p2y),  // top-right
-            floatArrayOf(p3x, p3y)   // bottom-right
+    fun expand(factor: Float): HandTrackingROI {
+        return HandTrackingROI(
+            centerX = centerX,
+            centerY = centerY,
+            roiWidth = roiWidth * factor,
+            roiHeight = roiHeight * factor,
+            rotation = rotation
         )
     }
 
     /**
-     * Normalize angle to [-π, π]
+     * Make ROI square by using the larger dimension
      */
-    private fun normalizeRadians(angle: Float): Float {
-        val twoPi = 2 * PI.toFloat()
-        return angle - twoPi * floor((angle + PI.toFloat()) / twoPi)
+    fun toSquare(): HandTrackingROI {
+        val size = maxOf(roiWidth, roiHeight)
+        return HandTrackingROI(
+            centerX = centerX,
+            centerY = centerY,
+            roiWidth = size,
+            roiHeight = size,
+            rotation = rotation
+        )
+    }
+
+    /**
+     * Shift ROI by offset
+     */
+    fun shift(dx: Float, dy: Float): HandTrackingROI {
+        return HandTrackingROI(
+            centerX = centerX + dx,
+            centerY = centerY + dy,
+            roiWidth = roiWidth,
+            roiHeight = roiHeight,
+            rotation = rotation
+        )
+    }
+
+    /**
+     * Rotate ROI
+     */
+    fun rotate(degrees: Float): HandTrackingROI {
+        return HandTrackingROI(
+            centerX = centerX,
+            centerY = centerY,
+            roiWidth = roiWidth,
+            roiHeight = roiHeight,
+            rotation = rotation + degrees
+        )
+    }
+
+    /**
+     * Calculate Intersection over Union (IoU) with another ROI
+     */
+    fun iou(other: HandTrackingROI): Float {
+        val box1 = getBoundingBox()
+        val box2 = other.getBoundingBox()
+
+        val x1 = maxOf(box1[0], box2[0])
+        val y1 = maxOf(box1[1], box2[1])
+        val x2 = minOf(box1[2], box2[2])
+        val y2 = minOf(box1[3], box2[3])
+
+        if (x2 < x1 || y2 < y1) return 0f
+
+        val intersection = (x2 - x1) * (y2 - y1)
+        val area1 = roiWidth * roiHeight
+        val area2 = other.roiWidth * other.roiHeight
+        val union = area1 + area2 - intersection
+
+        return intersection / union
+    }
+
+    /**
+     * Get area of ROI
+     */
+    fun getArea(): Float {
+        return roiWidth * roiHeight
+    }
+
+    /**
+     * Get aspect ratio (width / height)
+     */
+    fun getAspectRatio(): Float {
+        return roiWidth / roiHeight
+    }
+
+    companion object {
+        /**
+         * Create ROI from bounding box [left, top, right, bottom]
+         */
+        fun fromBoundingBox(
+            left: Float,
+            top: Float,
+            right: Float,
+            bottom: Float,
+            rotation: Float = 0f
+        ): HandTrackingROI {
+            val centerX = (left + right) / 2
+            val centerY = (top + bottom) / 2
+            val width = right - left
+            val height = bottom - top
+
+            return HandTrackingROI(centerX, centerY, width, height, rotation)
+        }
+
+        /**
+         * Create ROI from detection result
+         */
+        fun fromDetection(
+            box: FloatArray,
+            expandFactor: Float = 1.5f
+        ): HandTrackingROI {
+            val roi = fromBoundingBox(box[0], box[1], box[2], box[3])
+            return roi.expand(expandFactor)
+        }
+
+        /**
+         * Create ROI from hand landmarks
+         * @param landmarks Flat array of [x0, y0, z0, x1, y1, z1, ...]
+         */
+        fun fromLandmarks(
+            landmarks: FloatArray,
+            expandFactor: Float = 1.3f
+        ): HandTrackingROI {
+            var minX = Float.MAX_VALUE
+            var minY = Float.MAX_VALUE
+            var maxX = Float.MIN_VALUE
+            var maxY = Float.MIN_VALUE
+
+            // Find bounding box of landmarks
+            for (i in 0 until landmarks.size / 3) {
+                val x = landmarks[i * 3]
+                val y = landmarks[i * 3 + 1]
+
+                minX = minOf(minX, x)
+                minY = minOf(minY, y)
+                maxX = maxOf(maxX, x)
+                maxY = maxOf(maxY, y)
+            }
+
+            val roi = fromBoundingBox(minX, minY, maxX, maxY)
+            return roi.expand(expandFactor)
+        }
+    }
+
+    override fun toString(): String {
+        return "HandROI(center=[%.1f, %.1f], size=[%.1f x %.1f], rot=%.1f°)".format(
+            centerX, centerY, roiWidth, roiHeight, rotation
+        )
     }
 }

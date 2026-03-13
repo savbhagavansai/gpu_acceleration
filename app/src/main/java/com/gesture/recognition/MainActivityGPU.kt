@@ -372,8 +372,8 @@ class MainActivity : AppCompatActivity() {
      */
     private fun updateUI(result: GestureResult) {
         runOnUiThread {
-            // Update gesture overlay
-            result.landmarks?.let { landmarks ->
+            // Update gesture overlay with landmarks from recognizer
+            gestureRecognizer?.latestLandmarks?.let { landmarks ->
                 gestureOverlay.updateLandmarks(landmarks, 1088, 1088)  // Use actual camera resolution
             }
 
@@ -384,7 +384,7 @@ class MainActivity : AppCompatActivity() {
             val statusMessage = when {
                 gesture == "no_hand" -> "No hand detected"
                 gesture == "no_landmarks" -> "Hand tracking lost"
-                gesture == "buffering" -> "Buffering... ${result.bufferFilled}/15"
+                gesture == "buffering" -> "Buffering... ${(result.bufferProgress * 15).toInt()}/15"
                 else -> "$gesture (${confidence}%)"
             }
 
@@ -393,12 +393,12 @@ class MainActivity : AppCompatActivity() {
             // Log performance every 30th frame
             if (frameCount % 30 == 1) {
                 FileLogger.d(TAG, "Result received:")
-                FileLogger.d(TAG, "  - Landmarks: ${result.landmarks?.size ?: 0} values")
+                FileLogger.d(TAG, "  - Landmarks: ${gestureRecognizer?.latestLandmarks?.size ?: 0} values")
                 FileLogger.d(TAG, "  - Gesture: ${result.gesture}")
                 FileLogger.d(TAG, "  - Confidence: ${result.confidence}")
-                FileLogger.d(TAG, "  - Buffer: ${result.bufferFilled}/15")
-                FileLogger.d(TAG, "  - Detector: ${String.format("%.1f", result.detectorTimeMs)}ms")
-                FileLogger.d(TAG, "  - Landmark: ${String.format("%.1f", result.landmarkTimeMs)}ms")
+                FileLogger.d(TAG, "  - Buffer: ${(result.bufferProgress * 15).toInt()}/15")
+                FileLogger.d(TAG, "  - Detector: ${String.format("%.1f", result.handDetectorTimeMs)}ms")
+                FileLogger.d(TAG, "  - Landmark: ${String.format("%.1f", result.landmarksTimeMs)}ms")
                 FileLogger.d(TAG, "  - Total: ${String.format("%.1f", result.totalTimeMs)}ms")
                 FileLogger.d(TAG, "  - Was Tracking: ${result.wasTracking}")
             }

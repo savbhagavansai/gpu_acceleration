@@ -28,6 +28,10 @@ class GestureRecognizerGPU(private val context: Context) {
     private val sequenceBuffer = SequenceBuffer(Config.SEQUENCE_LENGTH)
     private val landmarkNormalizer = LandmarkNormalizer
 
+    // Latest landmarks (for drawing)
+    var latestLandmarks: FloatArray? = null
+        private set
+
     /**
      * Initialize all components
      * Returns Task<Boolean> because GPU initialization is async
@@ -78,19 +82,19 @@ class GestureRecognizerGPU(private val context: Context) {
             val detectorTime = (System.nanoTime() - detectorStart) / 1_000_000.0
 
             if (detection == null) {
+                latestLandmarks = null  // Clear landmarks
                 return GestureResult(
                     gesture = "no_hand",
                     confidence = 0.0f,
-                    landmarks = null,
+                    allProbabilities = FloatArray(8) { 0f },
+                    handDetected = false,
+                    bufferProgress = 0f,
+                    isStable = false,
                     handDetectorTimeMs = detectorTime,
                     landmarksTimeMs = 0.0,
                     gestureTimeMs = 0.0,
                     totalTimeMs = detectorTime,
-                    bufferFilled = sequenceBuffer.size(),
-                    allProbabilities = FloatArray(8) { 0f },
-                    handDetected = false,
-                    bufferProgress = 0f,
-                    isStable = false
+                    wasTracking = false
                 )
             }
 
@@ -101,25 +105,28 @@ class GestureRecognizerGPU(private val context: Context) {
             val landmarkTime = (System.nanoTime() - landmarkStart) / 1_000_000.0
 
             if (landmarkResult == null) {
+                latestLandmarks = null  // Clear landmarks
                 return GestureResult(
                     gesture = "no_landmarks",
                     confidence = 0.0f,
-                    landmarks = null,
+                    allProbabilities = FloatArray(8) { 0f },
+                    handDetected = true,
+                    bufferProgress = 0f,
+                    isStable = false,
                     handDetectorTimeMs = detectorTime,
                     landmarksTimeMs = landmarkTime,
                     gestureTimeMs = 0.0,
                     totalTimeMs = detectorTime + landmarkTime,
-                    bufferFilled = sequenceBuffer.size(),
-                    allProbabilities = FloatArray(8) { 0f },
-                    handDetected = true,
-                    bufferProgress = 0f,
-                    isStable = false
+                    wasTracking = true
                 )
             }
 
             // Step 3: Normalize landmarks
             val landmarksFlat = flattenLandmarks(landmarkResult.landmarks)
             val normalized = LandmarkNormalizer.normalize(landmarksFlat)
+
+            // Store for drawing
+            latestLandmarks = landmarksFlat
 
             // Step 4: Add to sequence buffer
             sequenceBuffer.add(normalized)
@@ -147,16 +154,15 @@ class GestureRecognizerGPU(private val context: Context) {
             return GestureResult(
                 gesture = gestureName,
                 confidence = confidence,
-                landmarks = landmarksFlat,
+                allProbabilities = allProbabilities,
+                handDetected = true,
+                bufferProgress = sequenceBuffer.size().toFloat() / Config.SEQUENCE_LENGTH,
+                isStable = sequenceBuffer.isFull(),
                 handDetectorTimeMs = detectorTime,
                 landmarksTimeMs = landmarkTime,
                 gestureTimeMs = gestureTime,
                 totalTimeMs = totalTime,
-                bufferFilled = sequenceBuffer.size(),
-                allProbabilities = allProbabilities,
-                handDetected = true,
-                bufferProgress = sequenceBuffer.size().toFloat() / Config.SEQUENCE_LENGTH,
-                isStable = sequenceBuffer.isFull()
+                wasTracking = true
             )
 
         } catch (e: Exception) {
