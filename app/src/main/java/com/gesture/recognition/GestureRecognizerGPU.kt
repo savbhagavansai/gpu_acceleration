@@ -26,7 +26,7 @@ class GestureRecognizerGPU(private val context: Context) {
 
     // State
     private val sequenceBuffer = SequenceBuffer(Config.SEQUENCE_LENGTH)
-    private val landmarkNormalizer = LandmarkNormalizer()
+    private val landmarkNormalizer = LandmarkNormalizer
 
     /**
      * Initialize all components
@@ -82,12 +82,15 @@ class GestureRecognizerGPU(private val context: Context) {
                     gesture = "no_hand",
                     confidence = 0.0f,
                     landmarks = null,
-                    detectorTimeMs = detectorTime,
-                    landmarkTimeMs = 0.0,
+                    handDetectorTimeMs = detectorTime,
+                    landmarksTimeMs = 0.0,
                     gestureTimeMs = 0.0,
                     totalTimeMs = detectorTime,
                     bufferFilled = sequenceBuffer.size(),
-                    wasTracking = false
+                    allProbabilities = FloatArray(8) { 0f },
+                    handDetected = false,
+                    bufferProgress = 0f,
+                    isStable = false
                 )
             }
 
@@ -102,18 +105,21 @@ class GestureRecognizerGPU(private val context: Context) {
                     gesture = "no_landmarks",
                     confidence = 0.0f,
                     landmarks = null,
-                    detectorTimeMs = detectorTime,
-                    landmarkTimeMs = landmarkTime,
+                    handDetectorTimeMs = detectorTime,
+                    landmarksTimeMs = landmarkTime,
                     gestureTimeMs = 0.0,
                     totalTimeMs = detectorTime + landmarkTime,
                     bufferFilled = sequenceBuffer.size(),
-                    wasTracking = true
+                    allProbabilities = FloatArray(8) { 0f },
+                    handDetected = true,
+                    bufferProgress = 0f,
+                    isStable = false
                 )
             }
 
             // Step 3: Normalize landmarks
             val landmarksFlat = flattenLandmarks(landmarkResult.landmarks)
-            val normalized = landmarkNormalizer.normalize(landmarksFlat)
+            val normalized = LandmarkNormalizer.normalize(landmarksFlat)
 
             // Step 4: Add to sequence buffer
             sequenceBuffer.add(normalized)
@@ -122,12 +128,17 @@ class GestureRecognizerGPU(private val context: Context) {
             val gestureStart = System.nanoTime()
             var gestureName = "buffering"
             var confidence = 0.0f
+            var allProbabilities = FloatArray(8) { 0f }
 
             if (sequenceBuffer.isFull()) {
                 val sequence = sequenceBuffer.getSequence()
-                val (gestureId, probabilities) = gestureClassifier.predict(sequence)
-                gestureName = Config.GESTURE_LABELS[gestureId]
-                confidence = probabilities[gestureId]
+                val result = gestureClassifier.predict(sequence)
+                if (result != null) {
+                    val (gestureId, probabilities) = result
+                    gestureName = getGestureLabel(gestureId)
+                    confidence = probabilities[gestureId]
+                    allProbabilities = probabilities
+                }
             }
 
             val gestureTime = (System.nanoTime() - gestureStart) / 1_000_000.0
@@ -137,18 +148,38 @@ class GestureRecognizerGPU(private val context: Context) {
                 gesture = gestureName,
                 confidence = confidence,
                 landmarks = landmarksFlat,
-                detectorTimeMs = detectorTime,
-                landmarkTimeMs = landmarkTime,
+                handDetectorTimeMs = detectorTime,
+                landmarksTimeMs = landmarkTime,
                 gestureTimeMs = gestureTime,
                 totalTimeMs = totalTime,
                 bufferFilled = sequenceBuffer.size(),
-                wasTracking = true
+                allProbabilities = allProbabilities,
+                handDetected = true,
+                bufferProgress = sequenceBuffer.size().toFloat() / Config.SEQUENCE_LENGTH,
+                isStable = sequenceBuffer.isFull()
             )
 
         } catch (e: Exception) {
             FileLogger.e(TAG, "Recognition failed", e)
             return null
         }
+    }
+
+    /**
+     * Get gesture label by ID
+     */
+    private fun getGestureLabel(gestureId: Int): String {
+        val labels = arrayOf(
+            "no_gesture",
+            "swipe_left",
+            "swipe_right",
+            "swipe_up",
+            "swipe_down",
+            "stop_sign",
+            "thumbs_up",
+            "thumbs_down"
+        )
+        return if (gestureId in labels.indices) labels[gestureId] else "unknown"
     }
 
     /**
@@ -171,10 +202,10 @@ class GestureRecognizerGPU(private val context: Context) {
         val expandedHeight = height * 1.5f
 
         return HandTrackingROI(
-            xCenter = xCenter,
-            yCenter = yCenter,
-            width = expandedWidth,
-            height = expandedHeight,
+            centerX = xCenter,
+            centerY = yCenter,
+            roiWidth = expandedWidth,
+            roiHeight = expandedHeight,
             rotation = 0f
         )
     }
@@ -208,18 +239,3 @@ class GestureRecognizerGPU(private val context: Context) {
         FileLogger.i(TAG, "✓ Gesture Recognizer closed")
     }
 }
-
-/**
- * Gesture recognition result
- */
-data class GestureResult(
-    val gesture: String,
-    val confidence: Float,
-    val landmarks: FloatArray?,
-    val detectorTimeMs: Double,
-    val landmarkTimeMs: Double,
-    val gestureTimeMs: Double,
-    val totalTimeMs: Double,
-    val bufferFilled: Int,
-    val wasTracking: Boolean
-)

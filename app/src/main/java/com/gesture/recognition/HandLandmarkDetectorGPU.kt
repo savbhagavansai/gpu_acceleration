@@ -224,9 +224,9 @@ class HandLandmarkDetectorGPU(private val context: Context) {
 
         // Calculate transformation matrix
         val srcPoints = floatArrayOf(
-            roi.xCenter - roi.width / 2, roi.yCenter - roi.height / 2,  // Top-left
-            roi.xCenter + roi.width / 2, roi.yCenter - roi.height / 2,  // Top-right
-            roi.xCenter - roi.width / 2, roi.yCenter + roi.height / 2   // Bottom-left
+            roi.centerX - roi.roiWidth / 2, roi.centerY - roi.roiHeight / 2,  // Top-left
+            roi.centerX + roi.roiWidth / 2, roi.centerY - roi.roiHeight / 2,  // Top-right
+            roi.centerX - roi.roiWidth / 2, roi.centerY + roi.roiHeight / 2   // Bottom-left
         )
 
         val dstPoints = floatArrayOf(
@@ -239,10 +239,10 @@ class HandLandmarkDetectorGPU(private val context: Context) {
 
         return Bitmap.createBitmap(
             bitmap,
-            maxOf(0, (roi.xCenter - roi.width / 2).toInt()),
-            maxOf(0, (roi.yCenter - roi.height / 2).toInt()),
-            minOf(bitmap.width, roi.width.toInt()),
-            minOf(bitmap.height, roi.height.toInt()),
+            maxOf(0, (roi.centerX - roi.roiWidth / 2).toInt()),
+            maxOf(0, (roi.centerY - roi.roiHeight / 2).toInt()),
+            minOf(bitmap.width, roi.roiWidth.toInt()),
+            minOf(bitmap.height, roi.roiHeight.toInt()),
             matrix,
             true
         )
@@ -270,9 +270,9 @@ class HandLandmarkDetectorGPU(private val context: Context) {
             val yNorm = y / INPUT_SIZE
 
             // Map to original image coordinates
-            result[i][0] = (roi.xCenter - roi.width / 2 + xNorm * roi.width)
-            result[i][1] = (roi.yCenter - roi.height / 2 + yNorm * roi.height)
-            result[i][2] = z / INPUT_SIZE * roi.width  // Scale z relative to ROI size
+            result[i][0] = (roi.centerX - roi.roiWidth / 2 + xNorm * roi.roiWidth)
+            result[i][1] = (roi.centerY - roi.roiHeight / 2 + yNorm * roi.roiHeight)
+            result[i][2] = z / INPUT_SIZE * roi.roiWidth  // Scale z relative to ROI size
         }
 
         return result
