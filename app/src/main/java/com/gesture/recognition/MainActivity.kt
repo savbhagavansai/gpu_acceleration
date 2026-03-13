@@ -9,7 +9,6 @@ import android.graphics.Rect
 import android.graphics.YuvImage
 import android.os.Bundle
 import android.util.Log
-import android.view.Surface
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
@@ -18,12 +17,9 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import com.google.android.gms.tasks.Task
-import com.google.android.gms.tasks.Tasks
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
-import kotlin.Exception
 
 class MainActivity : AppCompatActivity() {
 
@@ -60,15 +56,6 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
-        // Set up crash handler
-        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
-            Log.e(TAG, "═══ APP CRASHED ═══")
-            Log.e(TAG, "  Exception: ${throwable.javaClass.simpleName}: ${throwable.message}")
-            throwable.stackTrace.take(5).forEach { element ->
-                Log.e(TAG, "    at ${element}")
-            }
-        }
 
         setContentView(R.layout.activity_main)
 
@@ -153,7 +140,7 @@ class MainActivity : AppCompatActivity() {
      */
     private fun initializeGestureRecognizer() {
         try {
-            Log.i(TAG,("Initializing Gesture Recognizer")
+            Log.i(TAG, "Initializing Gesture Recognizer")
 
             runOnUiThread {
                 statusText.text = "Loading AI models..."
@@ -295,12 +282,6 @@ class MainActivity : AppCompatActivity() {
         frameCount++
 
         try {
-            // Log every 30th frame
-            if (frameCount % 30 == 1) {
-                Log.d(TAG, "────────────────────────────────────────────────────────────")
-                Log.d(TAG, "Frame #$frameCount: ${imageProxy.width}x${imageProxy.height}, rotation=${imageProxy.imageInfo.rotationDegrees}")
-            }
-
             // Convert ImageProxy to Bitmap
             val bitmap = imageProxyToBitmap(imageProxy)
 
@@ -366,7 +347,7 @@ class MainActivity : AppCompatActivity() {
         runOnUiThread {
             // Update gesture overlay with landmarks from recognizer
             gestureRecognizer?.latestLandmarks?.let { landmarks ->
-                gestureOverlay.updateLandmarks(landmarks, 1088, 1088)  // Use actual camera resolution
+                gestureOverlay.updateLandmarks(landmarks, 1088, 1088)
             }
 
             // Update status text
@@ -381,19 +362,6 @@ class MainActivity : AppCompatActivity() {
             }
 
             statusText.text = statusMessage
-
-            // Log performance every 30th frame
-            if (frameCount % 30 == 1) {
-                Log.d(TAG, "Result received:")
-                Log.d(TAG, "  - Landmarks: ${gestureRecognizer?.latestLandmarks?.size ?: 0} values")
-                Log.d(TAG, "  - Gesture: ${result.gesture}")
-                Log.d(TAG, "  - Confidence: ${result.confidence}")
-                Log.d(TAG, "  - Buffer: ${(result.bufferProgress * 15).toInt()}/15")
-                Log.d(TAG, "  - Detector: ${String.format("%.1f", result.handDetectorTimeMs)}ms")
-                Log.d(TAG, "  - Landmark: ${String.format("%.1f", result.landmarksTimeMs)}ms")
-                Log.d(TAG, "  - Total: ${String.format("%.1f", result.totalTimeMs)}ms")
-                Log.d(TAG, "  - Was Tracking: ${result.wasTracking}")
-            }
         }
     }
 
@@ -462,17 +430,12 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
 
-        Log.i(TAG,("MainActivity onDestroy()")
-
-        // Log final stats
-        Log.i(TAG, "App closing - processed $frameCount frames")
+        Log.i(TAG, "MainActivity onDestroy()")
 
         // Close gesture recognizer
         gestureRecognizer?.close()
 
         // Shutdown camera executor
         cameraExecutor.shutdown()
-
-        Log.i(TAG,("APP STOPPED: ${FileLogger.getCurrentTimestamp()}")
     }
 }
