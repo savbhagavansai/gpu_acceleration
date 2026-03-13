@@ -121,8 +121,9 @@ class GestureRecognizerGPU(private val context: Context) {
                 )
             }
 
-            // Step 3: Normalize landmarks
-            val landmarksFlat = flattenLandmarks(landmarkResult!!.landmarks)
+            // Step 3: Normalize landmarks - explicit null handling
+            val landmarksArray: Array<FloatArray> = landmarkResult.landmarks
+            val landmarksFlat = flattenLandmarks(landmarksArray)
             val normalized = LandmarkNormalizer.normalize(landmarksFlat)
 
             // Store for drawing
