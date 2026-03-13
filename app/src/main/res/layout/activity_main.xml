@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#000000"
+    tools:context=".MainActivity">
+
+    <!-- Camera Preview (Bottom layer) -->
+    <androidx.camera.view.PreviewView
+        android:id="@+id/viewFinder"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <!-- Gesture Overlay View (Middle layer - Hand landmarks) -->
+    <com.gesture.recognition.GestureOverlayView
+        android:id="@+id/gestureOverlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <!-- UI Overlay Container (Top layer - Text elements) -->
+    <RelativeLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:padding="16dp">
+
+        <!-- Status Text (Top Center) -->
+        <TextView
+            android:id="@+id/statusText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_centerHorizontal="true"
+            android:layout_alignParentTop="true"
+            android:layout_marginTop="32dp"
+            android:text="Initializing..."
+            android:textSize="24sp"
+            android:textColor="@android:color/white"
+            android:background="#CC000000"
+            android:padding="16dp"
+            android:gravity="center"
+            android:minWidth="200dp" />
+
+        <!-- FPS Counter (Bottom Left) -->
+        <TextView
+            android:id="@+id/fpsText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_alignParentBottom="true"
+            android:layout_alignParentStart="true"
+            android:layout_marginBottom="16dp"
+            android:text="FPS: --"
+            android:textSize="16sp"
+            android:textColor="@android:color/white"
+            android:background="#CC000000"
+            android:padding="12dp"
+            android:fontFamily="monospace" />
+
+        <!-- Backend Info (Bottom Right) -->
+        <TextView
+            android:id="@+id/backendText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_alignParentBottom="true"
+            android:layout_alignParentEnd="true"
+            android:layout_marginBottom="16dp"
+            android:text="Backend: --"
+            android:textSize="16sp"
+            android:textColor="@android:color/white"
+            android:background="#CC000000"
+            android:padding="12dp"
+            android:fontFamily="monospace" />
+
+    </RelativeLayout>
+
+</FrameLayout>

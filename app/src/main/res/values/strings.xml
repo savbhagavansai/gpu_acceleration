@@ -1,0 +1,12 @@
+<resources>
+    <string name="app_name">Gesture Recognition</string>
+    <string name="waiting_for_hand">Waiting for hand...</string>
+    <string name="no_hand_detected">No hand detected</string>
+    <string name="collecting_frames">Collecting frames...</string>
+    <string name="show_hand">Show your hand to the camera</string>
+    <string name="camera_permission_required">Camera permission is required</string>
+    <string name="camera_error">Camera error occurred</string>
+    <string name="model_load_error">Failed to load model</string>
+    <string name="fps_format">FPS: %.1f</string>
+    <string name="confidence_format">%.1f%%</string>
+</resources>
