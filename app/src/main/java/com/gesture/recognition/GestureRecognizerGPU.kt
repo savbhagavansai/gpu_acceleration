@@ -2,6 +2,7 @@ package com.gesture.recognition
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.util.Log
 import com.google.android.gms.tasks.Task
 import com.google.android.gms.tasks.Tasks
 
@@ -37,13 +38,13 @@ class GestureRecognizerGPU(private val context: Context) {
      * Returns Task<Boolean> because GPU initialization is async
      */
     fun initialize(): Task<Boolean> {
-        FileLogger.section("Initializing Gesture Recognizer (GPU Pipeline)")
+        Log.i(TAG,("Initializing Gesture Recognizer (GPU Pipeline)")
 
         // Initialize hand detector (async)
         return handDetector.initialize().continueWithTask { detectorTask ->
 
             if (!detectorTask.isSuccessful || detectorTask.result != true) {
-                FileLogger.e(TAG, "Hand detector initialization failed")
+                Log.e(TAG, "Hand detector initialization failed")
                 return@continueWithTask Tasks.forResult(false)
             }
 
@@ -51,18 +52,18 @@ class GestureRecognizerGPU(private val context: Context) {
             landmarkDetector.initialize().continueWith { landmarkTask ->
 
                 if (!landmarkTask.isSuccessful || landmarkTask.result != true) {
-                    FileLogger.e(TAG, "Landmark detector initialization failed")
+                    Log.e(TAG, "Landmark detector initialization failed")
                     return@continueWith false
                 }
 
                 // Initialize gesture classifier (sync - ONNX)
                 try {
                     // Gesture classifier uses existing ONNX Runtime (already working!)
-                    FileLogger.i(TAG, "✓ Gesture classifier ready (ONNX NPU)")
-                    FileLogger.i(TAG, "✓ Complete pipeline initialized")
+                    Log.i(TAG, "✓ Gesture classifier ready (ONNX NPU)")
+                    Log.i(TAG, "✓ Complete pipeline initialized")
                     true
                 } catch (e: Exception) {
-                    FileLogger.e(TAG, "Gesture classifier failed", e)
+                    Log.e(TAG, "Gesture classifier failed", e)
                     false
                 }
             }
@@ -166,7 +167,7 @@ class GestureRecognizerGPU(private val context: Context) {
             )
 
         } catch (e: Exception) {
-            FileLogger.e(TAG, "Recognition failed", e)
+            Log.e(TAG, "Recognition failed", e)
             return null
         }
     }
@@ -242,7 +243,6 @@ class GestureRecognizerGPU(private val context: Context) {
         handDetector.close()
         landmarkDetector.close()
         gestureClassifier.close()
-        FileLogger.i(TAG, "✓ Gesture Recognizer closed")
+        Log.i(TAG, "✓ Gesture Recognizer closed")
     }
 }
-
