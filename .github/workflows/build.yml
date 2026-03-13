@@ -21,10 +21,21 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
         
+    # ═══════════════════════════════════════════════════════════
+    # CLEAR GRADLE CACHE - FORCES CLEAN BUILD
+    # ═══════════════════════════════════════════════════════════
+    - name: Clear Gradle cache
+      run: |
+        rm -rf ~/.gradle/caches
+        rm -rf ~/.gradle/wrapper
+        rm -rf .gradle
+        rm -rf app/build
+
     - name: Setup Gradle
       uses: gradle/actions/setup-gradle@v3
       with:
         gradle-version: 8.2
+        cache-disabled: true  # Disable Gradle cache
 
     - name: Generate Gradle Wrapper
       run: gradle wrapper --gradle-version 8.2
@@ -32,8 +43,14 @@ jobs:
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew
 
+    # ═══════════════════════════════════════════════════════════
+    # CLEAN BUILD - NO CACHE
+    # ═══════════════════════════════════════════════════════════
+    - name: Clean build
+      run: ./gradlew clean --no-daemon --no-build-cache
+
     - name: Build Debug APK
-      run: ./gradlew assembleDebug --stacktrace
+      run: ./gradlew assembleDebug --stacktrace --no-daemon --no-build-cache
 
     - name: Upload Debug APK
       uses: actions/upload-artifact@v4
@@ -43,7 +60,7 @@ jobs:
         retention-days: 30
 
     - name: Build Release APK (unsigned)
-      run: ./gradlew assembleRelease --stacktrace
+      run: ./gradlew assembleRelease --stacktrace --no-daemon --no-build-cache
       continue-on-error: true
 
     - name: Upload Release APK
