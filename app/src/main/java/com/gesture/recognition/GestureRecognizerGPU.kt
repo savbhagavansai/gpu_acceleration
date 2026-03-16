@@ -139,7 +139,7 @@ class GestureRecognizerGPU(private val context: Context) {
             var allProbabilities = FloatArray(8) { 0f }
 
             if (sequenceBuffer.isFull()) {
-                val sequence = sequenceBuffer.getSequence()
+                val sequence = sequenceBuffer.getSequence() ?: continue
                 val result = gestureClassifier.predict(sequence)
                 if (result != null) {
                     val (gestureId, probabilities) = result
