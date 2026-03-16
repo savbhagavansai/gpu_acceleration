@@ -245,4 +245,5 @@ class GestureRecognizerGPU(private val context: Context) {
         gestureClassifier.close()
         Log.i(TAG, "✓ Gesture Recognizer closed")
     }
+
 }
