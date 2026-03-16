@@ -161,8 +161,11 @@ class HandDetectorGPU(private val context: Context) {
         }
 
         try {
-            // Preprocess image
-            var tensorImage = TensorImage.fromBitmap(bitmap)
+            // Create TensorImage with explicit FLOAT32 type and load bitmap
+            var tensorImage = TensorImage(org.tensorflow.lite.DataType.FLOAT32)
+            tensorImage.load(bitmap)
+
+            // Apply preprocessing (resize + normalize)
             tensorImage = imageProcessor.process(tensorImage)
 
             // Prepare output buffers

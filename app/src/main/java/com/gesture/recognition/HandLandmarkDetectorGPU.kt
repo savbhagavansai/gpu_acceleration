@@ -159,8 +159,11 @@ class HandLandmarkDetectorGPU(private val context: Context) {
             // Warp ROI to square
             val warpedBitmap = warpAffineROI(bitmap, roi, INPUT_SIZE, INPUT_SIZE)
 
-            // Preprocess image
-            var tensorImage = TensorImage.fromBitmap(warpedBitmap)
+            // Create TensorImage with explicit FLOAT32 type
+            var tensorImage = TensorImage(org.tensorflow.lite.DataType.FLOAT32)
+            tensorImage.load(warpedBitmap)
+
+            // Apply preprocessing
             tensorImage = imageProcessor.process(tensorImage)
 
             // Prepare output buffers
