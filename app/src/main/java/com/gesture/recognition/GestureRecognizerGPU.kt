@@ -121,8 +121,8 @@ class GestureRecognizerGPU(private val context: Context) {
                 )
             }
 
-            // Step 3: Normalize landmarks - explicit null handling
-            val landmarksArray: Array<FloatArray> = landmarkResult.landmarks!!
+            // Step 3: Normalize landmarks - force non-null with !!
+            val landmarksArray = landmarkResult.landmarks!!
             val landmarksFlat = flattenLandmarks(landmarksArray)
             val normalized = LandmarkNormalizer.normalize(landmarksFlat)
 
@@ -245,5 +245,4 @@ class GestureRecognizerGPU(private val context: Context) {
         gestureClassifier.close()
         Log.i(TAG, "✓ Gesture Recognizer closed")
     }
-
 }
