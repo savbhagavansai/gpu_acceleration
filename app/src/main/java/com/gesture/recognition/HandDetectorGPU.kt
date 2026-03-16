@@ -24,7 +24,7 @@ class HandDetectorGPU(private val context: Context) {
     companion object {
         private const val TAG = "HandDetectorGPU"
         private const val MODEL_NAME = "mediapipe_hand-handdetector.tflite"
-        private const val INPUT_SIZE = 192
+        private const val INPUT_SIZE = 256  // CRITICAL: Model expects 256×256 RGB input
         private const val NUM_ANCHORS = 2944
     }
 
@@ -161,11 +161,11 @@ class HandDetectorGPU(private val context: Context) {
         }
 
         try {
-            // Create TensorImage with explicit FLOAT32 type and load bitmap
+            // CRITICAL: Create TensorImage with FLOAT32 type (model expects this!)
             var tensorImage = TensorImage(org.tensorflow.lite.DataType.FLOAT32)
             tensorImage.load(bitmap)
 
-            // Apply preprocessing (resize + normalize)
+            // Apply preprocessing (resize to 256x256 + normalize)
             tensorImage = imageProcessor.process(tensorImage)
 
             // Prepare output buffers
