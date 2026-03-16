@@ -169,8 +169,9 @@ class HandDetectorGPU(private val context: Context) {
             tensorImage = imageProcessor.process(tensorImage)
 
             // Prepare output buffers
+            // Model outputs: boxes=[1, 2944, 18], scores=[1, 2944, 1]
             val outputBoxes = Array(1) { Array(NUM_ANCHORS) { FloatArray(18) } }
-            val outputScores = Array(1) { FloatArray(NUM_ANCHORS) }
+            val outputScores = Array(1) { Array(NUM_ANCHORS) { FloatArray(1) } }  // Changed to match [1, 2944, 1]
 
             val outputs = mapOf(
                 0 to outputBoxes,
@@ -184,9 +185,12 @@ class HandDetectorGPU(private val context: Context) {
             )
 
             // Process detections
+            // Flatten scores from [2944, 1] to [2944]
+            val scoresFlat = FloatArray(NUM_ANCHORS) { i -> outputScores[0][i][0] }
+
             val detection = processDetections(
                 outputBoxes[0],
-                outputScores[0],
+                scoresFlat,
                 bitmap.width,
                 bitmap.height
             )
