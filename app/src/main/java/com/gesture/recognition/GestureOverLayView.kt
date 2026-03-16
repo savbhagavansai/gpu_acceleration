@@ -339,16 +339,10 @@ class GestureOverlayView @JvmOverloads constructor(
 
         var y = 60f
 
-        // Hand detection status
-        if (handDetected) {
-            textPaint.color = Color.GREEN
-            canvas.drawText("✓ HAND DETECTED", 40f, y, textPaint)
-        } else {
-            textPaint.color = Color.RED
-            canvas.drawText("✗ NO HAND", 40f, y, textPaint)
-        }
+        // REMOVED: Hand detection status (was overlapping with performance panel)
+        // Status is already shown in the main statusText TextView
 
-        y += 50f
+        y += 0f  // No spacing needed since we removed the text
 
         // Buffer status
         val bufferText = "Buffer: $bufferSize/${Config.SEQUENCE_LENGTH}"

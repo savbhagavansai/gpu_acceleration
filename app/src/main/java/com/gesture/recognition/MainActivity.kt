@@ -130,6 +130,12 @@ class MainActivity : AppCompatActivity() {
     private fun initializeApp() {
         Log.i(TAG, "Initializing Application")
 
+        // Initialize FileLogger for debugging
+        FileLogger.init(this)
+        FileLogger.section("APP INITIALIZATION")
+        FileLogger.i(TAG, "Device: ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}")
+        FileLogger.i(TAG, "Android: ${android.os.Build.VERSION.SDK_INT}")
+
         // Initialize gesture recognizer with GPU
         initializeGestureRecognizer()
     }
@@ -345,7 +351,7 @@ class MainActivity : AppCompatActivity() {
      */
     private fun updateUI(result: GestureResult) {
         runOnUiThread {
-            // Update gesture overlay
+            // Update gesture overlay with CORRECT image dimensions (640x480 camera)
             gestureOverlay.updateData(
                 result = result,
                 landmarks = gestureRecognizer?.latestLandmarks,
@@ -353,8 +359,8 @@ class MainActivity : AppCompatActivity() {
                 frameCount = frameCount,
                 bufferSize = (result.bufferProgress * 15).toInt(),
                 handDetected = result.handDetected,
-                imageWidth = 1088,
-                imageHeight = 1088,
+                imageWidth = 640,
+                imageHeight = 480,
                 rotation = 270,
                 mirrorHorizontal = true
             )
@@ -446,5 +452,8 @@ class MainActivity : AppCompatActivity() {
 
         // Shutdown camera executor
         cameraExecutor.shutdown()
+
+        // Close FileLogger
+        FileLogger.close()
     }
 }
