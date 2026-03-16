@@ -122,7 +122,19 @@ class GestureRecognizerGPU(private val context: Context) {
             }
 
             // Step 3: Normalize landmarks - explicit null handling
-            val landmarksArray: Array<FloatArray> = landmarkResult.landmarks
+            val landmarksArray = landmarkResult.landmarks ?: return GestureResult(
+                gesture = "no_landmarks",
+                confidence = 0.0f,
+                allProbabilities = FloatArray(8) { 0f },
+                handDetected = true,
+                bufferProgress = 0f,
+                isStable = false,
+                handDetectorTimeMs = detectorTime,
+                landmarksTimeMs = landmarkTime,
+                gestureTimeMs = 0.0,
+                totalTimeMs = detectorTime + landmarkTime,
+                wasTracking = true
+            )
             val landmarksFlat = flattenLandmarks(landmarksArray)
             val normalized = LandmarkNormalizer.normalize(landmarksFlat)
 
