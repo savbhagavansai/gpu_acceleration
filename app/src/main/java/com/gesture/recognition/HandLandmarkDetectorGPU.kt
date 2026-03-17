@@ -159,21 +159,23 @@ class HandLandmarkDetectorGPU(private val context: Context) {
             // Warp ROI to square
             val warpedBitmap = warpAffineROI(bitmap, roi, INPUT_SIZE, INPUT_SIZE)
 
-            // Create TensorImage with explicit FLOAT32 type
+            // Preprocess image - CRITICAL: Use FLOAT32 tensor type
             var tensorImage = TensorImage(org.tensorflow.lite.DataType.FLOAT32)
             tensorImage.load(warpedBitmap)
-
-            // Apply preprocessing
             tensorImage = imageProcessor.process(tensorImage)
 
             // Prepare output buffers
-            val outputLandmarks = Array(1) { FloatArray(NUM_LANDMARKS * 3) }  // [1, 63]
+            // MediaPipe hand landmark model outputs (in order):
+            // 0: presence score [1]
+            // 1: landmarks [1, 63] (21 landmarks × 3 coordinates)
+            // 2: handedness [1]
             val outputScores = FloatArray(1)  // [1] - presence score
+            val outputLandmarks = Array(1) { FloatArray(NUM_LANDMARKS * 3) }  // [1, 63]
             val outputHandedness = FloatArray(1)  // [1] - left/right score
 
             val outputs = mapOf(
-                0 to outputLandmarks,
-                1 to outputScores,
+                0 to outputScores,      // Changed: scores first
+                1 to outputLandmarks,   // Changed: landmarks second
                 2 to outputHandedness
             )
 

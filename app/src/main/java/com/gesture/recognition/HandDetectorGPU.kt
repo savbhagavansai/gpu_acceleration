@@ -2,7 +2,6 @@ package com.gesture.recognition
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.Matrix
 import android.util.Log
 import com.google.android.gms.tasks.Task
 import com.google.android.gms.tasks.Tasks
@@ -14,22 +13,27 @@ import org.tensorflow.lite.support.image.ImageProcessor
 import org.tensorflow.lite.support.image.TensorImage
 import org.tensorflow.lite.support.image.ops.ResizeOp
 import org.tensorflow.lite.gpu.GpuDelegateFactory
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 
 /**
- * Hand Landmark Detector using Google Play Services TFLite with GPU acceleration
+ * Hand Detector using Google Play Services TFLite with GPU acceleration
  */
-class HandLandmarkDetectorGPU(private val context: Context) {
+class HandDetectorGPU(private val context: Context) {
 
     companion object {
-        private const val TAG = "HandLandmarkGPU"
-        private const val MODEL_NAME = "mediapipe_hand-handlandmarkdetector.tflite"
-        private const val INPUT_SIZE = 256
-        private const val NUM_LANDMARKS = 21
+        private const val TAG = "HandDetectorGPU"
+        private const val MODEL_NAME = "mediapipe_hand-handdetector.tflite"
+        private const val INPUT_SIZE = 256  // Model expects 256×256 RGB input
+        private const val NUM_ANCHORS = 2944  // MediaPipe spec: [(8,2),(16,2),(32,6)] = 2944 anchors
     }
 
     private var interpreter: InterpreterApi? = null
     private var isGpuAvailable = false
     private var actualBackend = "UNKNOWN"
+
+    // Anchors for hand detection
+    private val anchors = generateAnchors()
 
     // Image processor
     private val imageProcessor = ImageProcessor.Builder()
@@ -39,9 +43,10 @@ class HandLandmarkDetectorGPU(private val context: Context) {
 
     /**
      * Initialize with GPU support
+     * Returns a Task that completes when initialization is done
      */
     fun initialize(): Task<Boolean> {
-        FileLogger.section("Initializing Landmark Detector (Play Services GPU)")
+        FileLogger.section("Initializing Hand Detector (Play Services GPU)")
 
         return TfLite.initialize(context).continueWithTask { initTask ->
             if (!initTask.isSuccessful) {
@@ -96,7 +101,7 @@ class HandLandmarkDetectorGPU(private val context: Context) {
             interpreter = InterpreterApi.create(modelBuffer, options)
             actualBackend = "GPU (Mali-G68 MP5)"
 
-            FileLogger.i(TAG, "✓ Landmark Detector ready on GPU")
+            FileLogger.i(TAG, "✓ Hand Detector ready on GPU")
             Log.d(TAG, "✓ Model loaded on GPU")
 
         } catch (e: Exception) {
@@ -121,7 +126,7 @@ class HandLandmarkDetectorGPU(private val context: Context) {
             interpreter = InterpreterApi.create(modelBuffer, options)
             actualBackend = "CPU (4 threads)"
 
-            FileLogger.i(TAG, "✓ Landmark Detector ready on CPU")
+            FileLogger.i(TAG, "✓ Hand Detector ready on CPU")
             Log.d(TAG, "✓ Model loaded on CPU")
 
         } catch (e: Exception) {
@@ -133,7 +138,7 @@ class HandLandmarkDetectorGPU(private val context: Context) {
     /**
      * Load model file from assets
      */
-    private fun loadModelFile(): java.nio.ByteBuffer {
+    private fun loadModelFile(): ByteBuffer {
         val fileDescriptor = context.assets.openFd(MODEL_NAME)
         val inputStream = java.io.FileInputStream(fileDescriptor.fileDescriptor)
         val fileChannel = inputStream.channel
@@ -147,36 +152,30 @@ class HandLandmarkDetectorGPU(private val context: Context) {
     }
 
     /**
-     * Detect hand landmarks in ROI
+     * Detect hand in image
      */
-    fun detectLandmarks(bitmap: Bitmap, roi: HandTrackingROI): LandmarkResult? {
+    fun detectHand(bitmap: Bitmap): DetectionResult? {
         val interp = interpreter ?: run {
             FileLogger.e(TAG, "Interpreter not initialized!")
             return null
         }
 
         try {
-            // Warp ROI to square
-            val warpedBitmap = warpAffineROI(bitmap, roi, INPUT_SIZE, INPUT_SIZE)
-
-            // Preprocess image - CRITICAL: Use FLOAT32 tensor type
+            // CRITICAL: Create TensorImage with FLOAT32 type (model expects this!)
             var tensorImage = TensorImage(org.tensorflow.lite.DataType.FLOAT32)
-            tensorImage.load(warpedBitmap)
+            tensorImage.load(bitmap)
+
+            // Apply preprocessing (resize to 256x256 + normalize)
             tensorImage = imageProcessor.process(tensorImage)
 
             // Prepare output buffers
-            // MediaPipe hand landmark model outputs (in order):
-            // 0: presence score [1]
-            // 1: landmarks [1, 63] (21 landmarks × 3 coordinates)
-            // 2: handedness [1]
-            val outputScores = FloatArray(1)  // [1] - presence score
-            val outputLandmarks = Array(1) { FloatArray(NUM_LANDMARKS * 3) }  // [1, 63]
-            val outputHandedness = FloatArray(1)  // [1] - left/right score
+            // Model outputs: boxes=[1, 2944, 18], scores=[1, 2944, 1]
+            val outputBoxes = Array(1) { Array(NUM_ANCHORS) { FloatArray(18) } }
+            val outputScores = Array(1) { Array(NUM_ANCHORS) { FloatArray(1) } }  // Changed to match [1, 2944, 1]
 
             val outputs = mapOf(
-                0 to outputScores,      // Changed: scores first
-                1 to outputLandmarks,   // Changed: landmarks second
-                2 to outputHandedness
+                0 to outputBoxes,
+                1 to outputScores
             )
 
             // Run inference
@@ -185,103 +184,190 @@ class HandLandmarkDetectorGPU(private val context: Context) {
                 outputs
             )
 
-            val presenceScore = outputScores[0]
+            // Process detections
+            // Flatten scores from [2944, 1] to [2944]
+            val scoresFlat = FloatArray(NUM_ANCHORS) { i -> outputScores[0][i][0] }
 
-            if (presenceScore < 0.5f) {
-                FileLogger.d(TAG, "Hand presence too low: $presenceScore")
-                return null
-            }
-
-            // Unproject landmarks back to original image coordinates
-            val landmarksInFrame = unprojectLandmarks(
-                outputLandmarks[0],
-                roi,
+            val detection = processDetections(
+                outputBoxes[0],
+                scoresFlat,
                 bitmap.width,
                 bitmap.height
             )
 
-            val handedness = if (outputHandedness[0] > 0.5f) "Right" else "Left"
-
-            FileLogger.d(TAG, "✓ Landmarks detected! Handedness: $handedness, Presence: $presenceScore")
-
-            return LandmarkResult(
-                landmarksInFrame,
-                presenceScore,
-                handedness
-            )
+            return detection
 
         } catch (e: Exception) {
-            FileLogger.e(TAG, "Landmark detection failed", e)
+            FileLogger.e(TAG, "Detection failed", e)
             return null
         }
     }
 
     /**
-     * Warp ROI using affine transformation
+     * Process raw detections with NMS
      */
-    private fun warpAffineROI(
-        bitmap: Bitmap,
-        roi: HandTrackingROI,
-        targetWidth: Int,
-        targetHeight: Int
-    ): Bitmap {
-        val matrix = Matrix()
+    private fun processDetections(
+        boxes: Array<FloatArray>,
+        scores: FloatArray,
+        imageWidth: Int,
+        imageHeight: Int
+    ): DetectionResult? {
 
-        // Calculate transformation matrix
-        val srcPoints = floatArrayOf(
-            roi.centerX - roi.roiWidth / 2, roi.centerY - roi.roiHeight / 2,  // Top-left
-            roi.centerX + roi.roiWidth / 2, roi.centerY - roi.roiHeight / 2,  // Top-right
-            roi.centerX - roi.roiWidth / 2, roi.centerY + roi.roiHeight / 2   // Bottom-left
-        )
+        val detections = mutableListOf<Detection>()
 
-        val dstPoints = floatArrayOf(
-            0f, 0f,
-            targetWidth.toFloat(), 0f,
-            0f, targetHeight.toFloat()
-        )
+        // Collect detections above threshold
+        for (i in scores.indices) {
+            val score = sigmoid(scores[i])
+            if (score > 0.5f) {
+                val anchor = anchors[i]
+                val box = decodeBox(boxes[i], anchor, imageWidth, imageHeight)
+                detections.add(Detection(box, score))
+            }
+        }
 
-        matrix.setPolyToPoly(srcPoints, 0, dstPoints, 0, 3)
+        if (detections.isEmpty()) return null
 
-        return Bitmap.createBitmap(
-            bitmap,
-            maxOf(0, (roi.centerX - roi.roiWidth / 2).toInt()),
-            maxOf(0, (roi.centerY - roi.roiHeight / 2).toInt()),
-            minOf(bitmap.width, roi.roiWidth.toInt()),
-            minOf(bitmap.height, roi.roiHeight.toInt()),
-            matrix,
-            true
-        )
+        // Apply NMS
+        val nmsDetections = applyNMS(detections, 0.3f)
+
+        return nmsDetections.maxByOrNull { it.score }?.let {
+            DetectionResult(it.box, it.score)
+        }
     }
 
     /**
-     * Unproject landmarks from ROI back to original frame
+     * Generate anchors for SSD detector
+     * MediaPipe Palm Detection spec: [(8,2),(16,2),(32,6)]
+     * - Stride 8: 32x32 grid with 2 anchors = 2048
+     * - Stride 16: 16x16 grid with 2 anchors = 512
+     * - Stride 32: 8x8 grid with 6 anchors = 384
+     * Total: 2944 anchors
      */
-    private fun unprojectLandmarks(
-        landmarks: FloatArray,
-        roi: HandTrackingROI,
-        imageWidth: Int,
-        imageHeight: Int
-    ): Array<FloatArray> {
-        val result = Array(NUM_LANDMARKS) { FloatArray(3) }
+    private fun generateAnchors(): List<Anchor> {
+        val anchors = mutableListOf<Anchor>()
 
-        for (i in 0 until NUM_LANDMARKS) {
-            // Landmarks are in [0, 256] pixel coordinates
-            val x = landmarks[i * 3]
-            val y = landmarks[i * 3 + 1]
-            val z = landmarks[i * 3 + 2]
+        // MediaPipe Palm Detection anchor configuration
+        // Format: (stride, num_anchors_per_location)
+        val anchorSpec = listOf(
+            Pair(8, 2),   // 32x32 grid, 2 anchors per location
+            Pair(16, 2),  // 16x16 grid, 2 anchors per location
+            Pair(32, 6)   // 8x8 grid, 6 anchors per location
+        )
 
-            // Map back to ROI coordinates
-            val xNorm = x / INPUT_SIZE
-            val yNorm = y / INPUT_SIZE
+        // Different scales for each anchor at a location
+        val scalesByStride = mapOf(
+            8 to floatArrayOf(0.1484375f, 0.2109375f),
+            16 to floatArrayOf(0.3f, 0.4f),
+            32 to floatArrayOf(0.5f, 0.6f, 0.7f, 0.8f, 0.9f, 1.0f)
+        )
 
-            // Map to original image coordinates
-            result[i][0] = (roi.centerX - roi.roiWidth / 2 + xNorm * roi.roiWidth)
-            result[i][1] = (roi.centerY - roi.roiHeight / 2 + yNorm * roi.roiHeight)
-            result[i][2] = z / INPUT_SIZE * roi.roiWidth  // Scale z relative to ROI size
+        for ((stride, numAnchors) in anchorSpec) {
+            val featureMapSize = INPUT_SIZE / stride
+            val scales = scalesByStride[stride] ?: floatArrayOf(0.5f)
+
+            for (y in 0 until featureMapSize) {
+                for (x in 0 until featureMapSize) {
+                    // Normalize coordinates to [0, 1]
+                    val xCenter = (x + 0.5f) * stride / INPUT_SIZE
+                    val yCenter = (y + 0.5f) * stride / INPUT_SIZE
+
+                    // Add anchors with different scales
+                    for (i in 0 until numAnchors) {
+                        val scale = scales[i % scales.size]
+                        anchors.add(Anchor(xCenter, yCenter, scale, scale))
+                    }
+                }
+            }
         }
 
-        return result
+        FileLogger.d(TAG, "✓ Generated ${anchors.size} anchors (expected: $NUM_ANCHORS)")
+
+        if (anchors.size != NUM_ANCHORS) {
+            FileLogger.e(TAG, "⚠️ CRITICAL: Anchor mismatch! Generated ${anchors.size} != $NUM_ANCHORS")
+        }
+
+        return anchors
     }
+
+    /**
+     * Decode box from anchor
+     */
+    private fun decodeBox(
+        boxData: FloatArray,
+        anchor: Anchor,
+        imageWidth: Int,
+        imageHeight: Int
+    ): FloatArray {
+        val cx = boxData[0] / INPUT_SIZE * anchor.w + anchor.x
+        val cy = boxData[1] / INPUT_SIZE * anchor.h + anchor.y
+        val w = boxData[2] / INPUT_SIZE * anchor.w
+        val h = boxData[3] / INPUT_SIZE * anchor.h
+
+        // Convert to pixel coordinates
+        val xMin = (cx - w / 2) * imageWidth
+        val yMin = (cy - h / 2) * imageHeight
+        val xMax = (cx + w / 2) * imageWidth
+        val yMax = (cy + h / 2) * imageHeight
+
+        // Extract keypoints (7 hand keypoints)
+        val keypoints = FloatArray(14)
+        for (i in 0 until 7) {
+            keypoints[i * 2] = (boxData[4 + i * 2] / INPUT_SIZE * anchor.w + anchor.x) * imageWidth
+            keypoints[i * 2 + 1] = (boxData[5 + i * 2] / INPUT_SIZE * anchor.h + anchor.y) * imageHeight
+        }
+
+        return floatArrayOf(xMin, yMin, xMax, yMax, *keypoints)
+    }
+
+    /**
+     * Apply Non-Maximum Suppression
+     */
+    private fun applyNMS(detections: List<Detection>, iouThreshold: Float): List<Detection> {
+        val sorted = detections.sortedByDescending { it.score }
+        val selected = mutableListOf<Detection>()
+
+        for (detection in sorted) {
+            var shouldKeep = true
+
+            for (kept in selected) {
+                val iou = calculateIoU(detection.box, kept.box)
+                if (iou > iouThreshold) {
+                    shouldKeep = false
+                    break
+                }
+            }
+
+            if (shouldKeep) {
+                selected.add(detection)
+            }
+        }
+
+        return selected
+    }
+
+    /**
+     * Calculate Intersection over Union
+     */
+    private fun calculateIoU(box1: FloatArray, box2: FloatArray): Float {
+        val x1 = maxOf(box1[0], box2[0])
+        val y1 = maxOf(box1[1], box2[1])
+        val x2 = minOf(box1[2], box2[2])
+        val y2 = minOf(box1[3], box2[3])
+
+        if (x2 < x1 || y2 < y1) return 0f
+
+        val intersection = (x2 - x1) * (y2 - y1)
+        val area1 = (box1[2] - box1[0]) * (box1[3] - box1[1])
+        val area2 = (box2[2] - box2[0]) * (box2[3] - box2[1])
+        val union = area1 + area2 - intersection
+
+        return intersection / union
+    }
+
+    /**
+     * Sigmoid activation
+     */
+    private fun sigmoid(x: Float): Float = 1.0f / (1.0f + Math.exp(-x.toDouble()).toFloat())
 
     /**
      * Get backend info
@@ -293,15 +379,13 @@ class HandLandmarkDetectorGPU(private val context: Context) {
      */
     fun close() {
         interpreter?.close()
-        FileLogger.i(TAG, "✓ Landmark Detector closed")
+        FileLogger.i(TAG, "✓ Hand Detector closed")
     }
 }
 
 /**
- * Landmark detection result
+ * Data classes
  */
-data class LandmarkResult(
-    val landmarks: Array<FloatArray>,  // [21, 3] - x, y, z in frame coords
-    val presence: Float,
-    val handedness: String  // "Left" or "Right"
-)
+data class Anchor(val x: Float, val y: Float, val w: Float, val h: Float)
+data class Detection(val box: FloatArray, val score: Float)
+data class DetectionResult(val box: FloatArray, val score: Float)
