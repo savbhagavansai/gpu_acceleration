@@ -24,8 +24,8 @@ class HandDetectorGPU(private val context: Context) {
     companion object {
         private const val TAG = "HandDetectorGPU"
         private const val MODEL_NAME = "mediapipe_hand-handdetector.tflite"
-        private const val INPUT_SIZE = 256  // CRITICAL: Model expects 256×256 RGB input
-        private const val NUM_ANCHORS = 1792  // Must match generateAnchors() output
+        private const val INPUT_SIZE = 256  // Model expects 256×256 RGB input
+        private const val NUM_ANCHORS = 2944  // MediaPipe spec: [(8,2),(16,2),(32,6)] = 2944 anchors
     }
 
     private var interpreter: InterpreterApi? = null
