@@ -25,7 +25,7 @@ class HandDetectorGPU(private val context: Context) {
         private const val TAG = "HandDetectorGPU"
         private const val MODEL_NAME = "mediapipe_hand-handdetector.tflite"
         private const val INPUT_SIZE = 256  // CRITICAL: Model expects 256×256 RGB input
-        private const val NUM_ANCHORS = 2944
+        private const val NUM_ANCHORS = 1792  // Must match generateAnchors() output
     }
 
     private var interpreter: InterpreterApi? = null
@@ -237,36 +237,55 @@ class HandDetectorGPU(private val context: Context) {
 
     /**
      * Generate anchors for SSD detector
+     * MediaPipe Palm Detection spec: [(8,2),(16,2),(32,6)]
+     * - Stride 8: 32x32 grid with 2 anchors = 2048
+     * - Stride 16: 16x16 grid with 2 anchors = 512
+     * - Stride 32: 8x8 grid with 6 anchors = 384
+     * Total: 2944 anchors
      */
     private fun generateAnchors(): List<Anchor> {
         val anchors = mutableListOf<Anchor>()
 
-        // SSD MultiBox anchor generation
-        val strides = intArrayOf(8, 16, 16, 16)
-        val aspectRatios = listOf(1.0f)
+        // MediaPipe Palm Detection anchor configuration
+        // Format: (stride, num_anchors_per_location)
+        val anchorSpec = listOf(
+            Pair(8, 2),   // 32x32 grid, 2 anchors per location
+            Pair(16, 2),  // 16x16 grid, 2 anchors per location
+            Pair(32, 6)   // 8x8 grid, 6 anchors per location
+        )
 
-        var layerIdx = 0
-        for (stride in strides) {
+        // Different scales for each anchor at a location
+        val scalesByStride = mapOf(
+            8 to floatArrayOf(0.1484375f, 0.2109375f),
+            16 to floatArrayOf(0.3f, 0.4f),
+            32 to floatArrayOf(0.5f, 0.6f, 0.7f, 0.8f, 0.9f, 1.0f)
+        )
+
+        for ((stride, numAnchors) in anchorSpec) {
             val featureMapSize = INPUT_SIZE / stride
+            val scales = scalesByStride[stride] ?: floatArrayOf(0.5f)
 
             for (y in 0 until featureMapSize) {
                 for (x in 0 until featureMapSize) {
+                    // Normalize coordinates to [0, 1]
                     val xCenter = (x + 0.5f) * stride / INPUT_SIZE
                     val yCenter = (y + 0.5f) * stride / INPUT_SIZE
 
-                    for (ratio in aspectRatios) {
-                        val scale = if (layerIdx == 0) 0.1484375f else 0.75f
-                        val w = scale
-                        val h = scale * ratio
-
-                        anchors.add(Anchor(xCenter, yCenter, w, h))
+                    // Add anchors with different scales
+                    for (i in 0 until numAnchors) {
+                        val scale = scales[i % scales.size]
+                        anchors.add(Anchor(xCenter, yCenter, scale, scale))
                     }
                 }
             }
-            layerIdx++
         }
 
-        FileLogger.d(TAG, "✓ Generated ${anchors.size} anchors")
+        FileLogger.d(TAG, "✓ Generated ${anchors.size} anchors (expected: $NUM_ANCHORS)")
+
+        if (anchors.size != NUM_ANCHORS) {
+            FileLogger.e(TAG, "⚠️ CRITICAL: Anchor mismatch! Generated ${anchors.size} != $NUM_ANCHORS")
+        }
+
         return anchors
     }
 
