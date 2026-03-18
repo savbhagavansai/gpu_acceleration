@@ -216,7 +216,8 @@ class HandLandmarkDetectorGPU(private val context: Context) {
 
 
     /**
-     * Warp ROI using affine transformation
+     * Warp and crop ROI from bitmap
+     * FIXED: Properly clamp ROI to image boundaries
      */
     private fun warpAffineROI(
         bitmap: Bitmap,
@@ -224,13 +225,44 @@ class HandLandmarkDetectorGPU(private val context: Context) {
         targetWidth: Int,
         targetHeight: Int
     ): Bitmap {
+        // Calculate ROI boundaries
+        val roiLeft = roi.centerX - roi.roiWidth / 2
+        val roiTop = roi.centerY - roi.roiHeight / 2
+        val roiRight = roi.centerX + roi.roiWidth / 2
+        val roiBottom = roi.centerY + roi.roiHeight / 2
+
+        // ✅ CLAMP to image boundaries
+        val clampedLeft = maxOf(0f, roiLeft)
+        val clampedTop = maxOf(0f, roiTop)
+        val clampedRight = minOf(bitmap.width.toFloat(), roiRight)
+        val clampedBottom = minOf(bitmap.height.toFloat(), roiBottom)
+
+        // Calculate clamped dimensions
+        val clampedWidth = clampedRight - clampedLeft
+        val clampedHeight = clampedBottom - clampedTop
+
+        // Safety check
+        if (clampedWidth <= 0 || clampedHeight <= 0) {
+            FileLogger.e("HandLandmarkGPU", "Invalid ROI dimensions after clamping!")
+            // Return a small region from center
+            return Bitmap.createScaledBitmap(
+                Bitmap.createBitmap(bitmap,
+                    bitmap.width/2 - 50,
+                    bitmap.height/2 - 50,
+                    100, 100),
+                targetWidth,
+                targetHeight,
+                true
+            )
+        }
+
+        // Create transformation matrix for the CLAMPED region
         val matrix = Matrix()
 
-        // Calculate transformation matrix
         val srcPoints = floatArrayOf(
-            roi.centerX - roi.roiWidth / 2, roi.centerY - roi.roiHeight / 2,  // Top-left
-            roi.centerX + roi.roiWidth / 2, roi.centerY - roi.roiHeight / 2,  // Top-right
-            roi.centerX - roi.roiWidth / 2, roi.centerY + roi.roiHeight / 2   // Bottom-left
+            clampedLeft, clampedTop,      // Top-left
+            clampedRight, clampedTop,     // Top-right
+            clampedLeft, clampedBottom    // Bottom-left
         )
 
         val dstPoints = floatArrayOf(
@@ -241,12 +273,13 @@ class HandLandmarkDetectorGPU(private val context: Context) {
 
         matrix.setPolyToPoly(srcPoints, 0, dstPoints, 0, 3)
 
+        // Crop the CLAMPED region (guaranteed to be within bounds)
         return Bitmap.createBitmap(
             bitmap,
-            maxOf(0, (roi.centerX - roi.roiWidth / 2).toInt()),
-            maxOf(0, (roi.centerY - roi.roiHeight / 2).toInt()),
-            minOf(bitmap.width, roi.roiWidth.toInt()),
-            minOf(bitmap.height, roi.roiHeight.toInt()),
+            clampedLeft.toInt(),
+            clampedTop.toInt(),
+            clampedWidth.toInt(),
+            clampedHeight.toInt(),
             matrix,
             true
         )

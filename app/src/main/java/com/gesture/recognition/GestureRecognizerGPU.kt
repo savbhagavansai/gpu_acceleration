@@ -205,38 +205,64 @@ class GestureRecognizerGPU(private val context: Context) {
     ): HandTrackingROI {
         val box = detection.box
 
-        // Python: SCALE_X = 2.9, SCALE_Y = 2.9, SHIFT_X = 0.0, SHIFT_Y = -0.5
+        // MediaPipe palm detection constants
         val SCALE_X = 2.9f
         val SCALE_Y = 2.9f
         val SHIFT_X = 0.0f
         val SHIFT_Y = -0.5f
 
-        // Box is in pixel coordinates [xMin, yMin, xMax, yMax]
+        // Box dimensions
         val bx = box[0]
         val by = box[1]
-        val bw = box[2] - box[0]  // box width
-        val bh = box[3] - box[1]  // box height
+        val bw = box[2] - box[0]
+        val bh = box[3] - box[1]
 
-        // Center of box (relative to box)
+        // Center of box
         val rx = bx + bw / 2
         val ry = by + bh / 2
 
-        // Python: cx_a = (rx + bw * SHIFT_X) * fw (where fw = imageWidth, but already in pixels)
-        // Since box is already in pixels, we don't need to multiply by fw/fh again
+        // Apply shift to center
         val cx_a = rx + bw * SHIFT_X
         val cy_a = ry + bh * SHIFT_Y
 
-        // ROI size: use the larger dimension and scale by SCALE_X/SCALE_Y
+        // ROI size: use larger dimension and scale
         val ls = maxOf(bw, bh)
-        val w_a = ls * SCALE_X
-        val h_a = ls * SCALE_Y
+        var w_a = ls * SCALE_X
+        var h_a = ls * SCALE_Y
+
+        // ✅ CLAMP ROI to stay within image bounds
+        // Calculate boundaries
+        val left = cx_a - w_a / 2
+        val top = cy_a - h_a / 2
+        val right = cx_a + w_a / 2
+        val bottom = cy_a + h_a / 2
+
+        // If ROI exceeds bounds, reduce size to fit
+        if (left < 0 || top < 0 || right > imageWidth || bottom > imageHeight) {
+            // Calculate how much we can expand while staying in bounds
+            val maxLeft = cx_a
+            val maxTop = cy_a
+            val maxRight = imageWidth - cx_a
+            val maxBottom = imageHeight - cy_a
+
+            // Maximum size that fits in all directions
+            val maxSize = minOf(maxLeft, maxTop, maxRight, maxBottom) * 2
+
+            if (maxSize < ls * SCALE_X) {
+                // ROI too large, scale down to fit
+                w_a = maxSize
+                h_a = maxSize
+                FileLogger.d("GestureRecognizer", "⚠️ ROI clamped: %.1fx%.1f -> %.1fx%.1f"
+                    .format(ls * SCALE_X, ls * SCALE_Y, w_a, h_a))
+            }
+        }
 
         return HandTrackingROI(
             centerX = cx_a,
             centerY = cy_a,
             roiWidth = w_a,
             roiHeight = h_a,
-            rotation = 0f  // We can add rotation later if needed
+            rotation = 0f
         )
     }
 
