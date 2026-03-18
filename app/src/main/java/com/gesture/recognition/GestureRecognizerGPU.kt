@@ -199,21 +199,38 @@ class GestureRecognizerGPU(private val context: Context) {
     ): HandTrackingROI {
         val box = detection.box
 
-        val width = box[2] - box[0]
-        val height = box[3] - box[1]
-        val xCenter = box[0] + width / 2
-        val yCenter = box[1] + height / 2
+        // Python: SCALE_X = 2.9, SCALE_Y = 2.9, SHIFT_X = 0.0, SHIFT_Y = -0.5
+        val SCALE_X = 2.9f
+        val SCALE_Y = 2.9f
+        val SHIFT_X = 0.0f
+        val SHIFT_Y = -0.5f
 
-        // Expand ROI by 50% for landmarks
-        val expandedWidth = width * 1.5f
-        val expandedHeight = height * 1.5f
+        // Box is in pixel coordinates [xMin, yMin, xMax, yMax]
+        val bx = box[0]
+        val by = box[1]
+        val bw = box[2] - box[0]  // box width
+        val bh = box[3] - box[1]  // box height
+
+        // Center of box (relative to box)
+        val rx = bx + bw / 2
+        val ry = by + bh / 2
+
+        // Python: cx_a = (rx + bw * SHIFT_X) * fw (where fw = imageWidth, but already in pixels)
+        // Since box is already in pixels, we don't need to multiply by fw/fh again
+        val cx_a = rx + bw * SHIFT_X
+        val cy_a = ry + bh * SHIFT_Y
+
+        // ROI size: use the larger dimension and scale by SCALE_X/SCALE_Y
+        val ls = maxOf(bw, bh)
+        val w_a = ls * SCALE_X
+        val h_a = ls * SCALE_Y
 
         return HandTrackingROI(
-            centerX = xCenter,
-            centerY = yCenter,
-            roiWidth = expandedWidth,
-            roiHeight = expandedHeight,
-            rotation = 0f
+            centerX = cx_a,
+            centerY = cy_a,
+            roiWidth = w_a,
+            roiHeight = h_a,
+            rotation = 0f  // We can add rotation later if needed
         )
     }
 
