@@ -52,7 +52,7 @@ class HandLandmarkDetectorGPU(private val context: Context) {
             FileLogger.i(TAG, "✓ Play Services TFLite initialized")
 
             try {
-                val gpuDelegateFactory = GpuDelegateFactory.Options().create()
+                val gpuDelegateFactory = GpuDelegateFactory()
                 isGpuAvailable = gpuDelegateFactory != null
                 FileLogger.i(TAG, "✓ GPU delegate available")
             } catch (e: Exception) {
@@ -308,3 +308,12 @@ class HandLandmarkDetectorGPU(private val context: Context) {
         FileLogger.i(TAG, "✓ Landmark Detector closed")
     }
 }
+
+/**
+ * Landmark detection result
+ */
+data class LandmarkResult(
+    val landmarks: Array<FloatArray>,  // [21, 3] - x, y, z in frame coords
+    val presence: Float,
+    val handedness: String  // "Left" or "Right"
+)

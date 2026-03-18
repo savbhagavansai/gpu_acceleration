@@ -59,7 +59,7 @@ class HandDetectorGPU(private val context: Context) {
             FileLogger.i(TAG, "✓ Play Services TFLite initialized")
 
             try {
-                val gpuDelegateFactory = GpuDelegateFactory.Options().create()
+                val gpuDelegateFactory = GpuDelegateFactory()
                 isGpuAvailable = gpuDelegateFactory != null
                 FileLogger.i(TAG, "✓ GPU delegate available")
             } catch (e: Exception) {

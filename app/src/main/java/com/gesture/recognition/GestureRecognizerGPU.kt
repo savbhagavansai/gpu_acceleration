@@ -305,6 +305,24 @@ class GestureRecognizerGPU(private val context: Context) {
             // Run gesture classification
             val gestureStart = System.nanoTime()
             val sequence = sequenceBuffer.getSequence()
+
+            // Handle null sequence
+            if (sequence == null) {
+                return GestureResult(
+                    gesture = "buffer_error",
+                    confidence = 0.0f,
+                    allProbabilities = FloatArray(11) { 0f },
+                    handDetected = true,
+                    bufferProgress = 1.0f,
+                    isStable = false,
+                    handDetectorTimeMs = detectorTime,
+                    landmarksTimeMs = landmarkTime,
+                    gestureTimeMs = 0.0,
+                    totalTimeMs = (System.nanoTime() - startTime) / 1_000_000.0,
+                    wasTracking = usedTracking
+                )
+            }
+
             val prediction = onnxInference.predict(sequence)  // ✅ FIXED: Returns Pair<Int, FloatArray>?
             val gestureTime = (System.nanoTime() - gestureStart) / 1_000_000.0
 
