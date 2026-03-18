@@ -170,7 +170,7 @@ class MainActivity : AppCompatActivity() {
 
                     runOnUiThread {
                         statusText.text = "AI models loaded"
-                        backendText.text = "GPU: Mali-G68"
+                        backendText.text = "Detector: $detectorBackend | Landmarks: $landmarkBackend"
 
                         // NOW safe to start camera
                         startCamera()
@@ -269,6 +269,7 @@ class MainActivity : AppCompatActivity() {
 
     /**
      * Process camera image
+     * ✅ FIXED: Resize to 640x480 before detection
      */
     private fun processImage(imageProxy: ImageProxy) {
         // Skip frames for performance
@@ -288,28 +289,28 @@ class MainActivity : AppCompatActivity() {
         frameCount++
 
         try {
-            // Convert ImageProxy to Bitmap (may be rotated to 1088x1088 or other size)
+            // Convert ImageProxy to Bitmap
             val rawBitmap = imageProxyToBitmap(imageProxy)
 
-            // ✅ RESIZE to target resolution for consistent coordinate space
+            // ✅ CRITICAL FIX: Resize to 640x480 for consistent coordinate space
             val bitmap = Bitmap.createScaledBitmap(rawBitmap, 640, 480, true)
 
-            // Clean up raw bitmap to avoid memory leak
+            // Recycle raw bitmap if different from resized (save memory)
             if (rawBitmap != bitmap) {
                 rawBitmap.recycle()
             }
 
-            // Now bitmap is guaranteed to be 640x480
-            // All detection and landmarks will be in 640x480 space
-
             // Recognize gesture
             val result = gestureRecognizer?.recognize(bitmap)
 
-            // Update UI - now we know dimensions are always 640x480
+            // Update UI and log
             result?.let { updateUI(it) }
 
             // Update FPS
             updateFPS()
+
+            // Recycle bitmap
+            bitmap.recycle()
 
         } catch (e: Exception) {
             Log.e(TAG, "Frame processing error", e)
@@ -359,10 +360,11 @@ class MainActivity : AppCompatActivity() {
 
     /**
      * Update UI with recognition result
+     * ✅ FIXED: imageWidth and imageHeight match the 640x480 resize
      */
     private fun updateUI(result: GestureResult) {
         runOnUiThread {
-            // Now we can confidently use 640x480 because we resized the bitmap
+            // Update gesture overlay with CORRECT image dimensions (640x480)
             gestureOverlay.updateData(
                 result = result,
                 landmarks = gestureRecognizer?.latestLandmarks,
@@ -370,8 +372,8 @@ class MainActivity : AppCompatActivity() {
                 frameCount = frameCount,
                 bufferSize = (result.bufferProgress * 15).toInt(),
                 handDetected = result.handDetected,
-                imageWidth = 640,    // ✅ Guaranteed by resize
-                imageHeight = 480,   // ✅ Guaranteed by resize
+                imageWidth = 640,   // ✅ Must match resize in processImage
+                imageHeight = 480,  // ✅ Must match resize in processImage
                 rotation = 270,
                 mirrorHorizontal = true
             )
@@ -384,6 +386,7 @@ class MainActivity : AppCompatActivity() {
                 gesture == "no_hand" -> "No hand detected"
                 gesture == "no_landmarks" -> "Hand tracking lost"
                 gesture == "buffering" -> "Buffering... ${(result.bufferProgress * 15).toInt()}/15"
+                result.wasTracking -> "🎯 $gesture (${confidence}%) [TRACKING]"
                 else -> "$gesture (${confidence}%)"
             }
 

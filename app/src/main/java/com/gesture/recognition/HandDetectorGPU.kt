@@ -2,343 +2,262 @@ package com.gesture.recognition
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.util.Log
 import com.google.android.gms.tasks.Task
 import com.google.android.gms.tasks.Tasks
 import com.google.android.gms.tflite.java.TfLite
 import org.tensorflow.lite.InterpreterApi
 import org.tensorflow.lite.InterpreterApi.Options.TfLiteRuntime
-import org.tensorflow.lite.support.common.ops.NormalizeOp
 import org.tensorflow.lite.support.image.ImageProcessor
 import org.tensorflow.lite.support.image.TensorImage
 import org.tensorflow.lite.support.image.ops.ResizeOp
 import org.tensorflow.lite.gpu.GpuDelegateFactory
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
+import kotlin.math.exp
 
 /**
- * Hand Detector using Google Play Services TFLite with GPU acceleration
+ * Hand Detector using Google Play Services TFLite with GPU
+ *
+ * Input: RGB image (resized to 256×256)
+ * Output: Hand bounding boxes and confidence scores
  */
 class HandDetectorGPU(private val context: Context) {
 
     companion object {
         private const val TAG = "HandDetectorGPU"
         private const val MODEL_NAME = "mediapipe_hand-handdetector.tflite"
-        private const val INPUT_SIZE = 256  // Model expects 256×256 RGB input
-        private const val NUM_ANCHORS = 2944  // MediaPipe spec: [(8,2),(16,2),(32,6)] = 2944 anchors
+        private const val INPUT_SIZE = 256
+        private const val NUM_ANCHORS = 2944
+        private const val DETECTION_THRESHOLD = 0.5f
     }
 
     private var interpreter: InterpreterApi? = null
+    private var anchors: List<Anchor> = emptyList()
     private var isGpuAvailable = false
     private var actualBackend = "UNKNOWN"
 
-    // Anchors for hand detection
-    private val anchors = generateAnchors()
-
-    // Image processor
+    // Image processor - normalize to [0, 1]
     private val imageProcessor = ImageProcessor.Builder()
         .add(ResizeOp(INPUT_SIZE, INPUT_SIZE, ResizeOp.ResizeMethod.BILINEAR))
-        .add(NormalizeOp(127.5f, 127.5f))  // Normalize to [-1, 1]
         .build()
+
+    init {
+        anchors = generateAnchors()
+        FileLogger.d(TAG, "✓ Generated ${anchors.size} anchors (expected: $NUM_ANCHORS)")
+    }
 
     /**
      * Initialize with GPU support
-     * Returns a Task that completes when initialization is done
      */
     fun initialize(): Task<Boolean> {
         FileLogger.section("Initializing Hand Detector (Play Services GPU)")
 
-        return TfLite.initialize(context).continueWithTask { initTask ->
-            if (!initTask.isSuccessful) {
-                FileLogger.e(TAG, "TfLite initialization failed", initTask.exception)
-                return@continueWithTask Tasks.forResult(false)
+        return TfLite.initialize(context).continueWith { task ->
+            if (!task.isSuccessful) {
+                FileLogger.e(TAG, "✗ Play Services TFLite init failed")
+                return@continueWith false
             }
 
             FileLogger.i(TAG, "✓ Play Services TFLite initialized")
 
-            // Check GPU availability
-            checkGpuAvailability().continueWith { gpuTask ->
-                isGpuAvailable = gpuTask.result ?: false
+            try {
+                val gpuDelegateFactory = GpuDelegateFactory.Options().create()
+                isGpuAvailable = gpuDelegateFactory != null
+                FileLogger.i(TAG, "✓ GPU delegate available")
+            } catch (e: Exception) {
+                isGpuAvailable = false
+                FileLogger.e(TAG, "GPU delegate not available: ${e.message}")
+            }
 
-                if (isGpuAvailable) {
-                    FileLogger.i(TAG, "✓ GPU delegate available")
-                    loadModelWithGpu()
-                } else {
-                    FileLogger.w(TAG, "GPU not available, using CPU")
-                    loadModelWithCpu()
+            // Try GPU first
+            if (isGpuAvailable) {
+                FileLogger.d(TAG, "Loading model with GPU delegate...")
+                try {
+                    val options = InterpreterApi.Options()
+                        .setRuntime(TfLiteRuntime.FROM_SYSTEM_ONLY)
+                        .addDelegateFactory(GpuDelegateFactory())
+
+                    interpreter = InterpreterApi.create(
+                        context.assets.openFd(MODEL_NAME).use { fileDescriptor ->
+                            fileDescriptor.createInputStream().readBytes()
+                        },
+                        options
+                    )
+                    actualBackend = "GPU"
+                    FileLogger.i(TAG, "✓ Hand Detector ready on GPU")
+                    return@continueWith true
+                } catch (e: Exception) {
+                    FileLogger.e(TAG, "GPU loading failed, falling back to CPU")
+                    FileLogger.e(TAG, "  Exception: ${e.javaClass.simpleName}: ${e.message}")
                 }
+            }
 
+            // Fallback to CPU
+            FileLogger.d(TAG, "Loading model on CPU...")
+            try {
+                val options = InterpreterApi.Options()
+                    .setRuntime(TfLiteRuntime.FROM_SYSTEM_ONLY)
+
+                interpreter = InterpreterApi.create(
+                    context.assets.openFd(MODEL_NAME).use { fileDescriptor ->
+                        fileDescriptor.createInputStream().readBytes()
+                    },
+                    options
+                )
+                actualBackend = "CPU"
+                FileLogger.i(TAG, "✓ Hand Detector ready on CPU")
                 true
+            } catch (e: Exception) {
+                FileLogger.e(TAG, "✗ Hand Detector init failed: ${e.message}")
+                false
             }
         }
     }
 
     /**
-     * Check if GPU delegate is available
-     */
-    private fun checkGpuAvailability(): Task<Boolean> {
-        return try {
-            com.google.android.gms.tflite.gpu.support.TfLiteGpu.isGpuDelegateAvailable(context)
-        } catch (e: Exception) {
-            FileLogger.w(TAG, "GPU check failed: ${e.message}")
-            Tasks.forResult(false)
-        }
-    }
-
-    /**
-     * Load model with GPU acceleration
-     */
-    private fun loadModelWithGpu() {
-        try {
-            FileLogger.d(TAG, "Loading model with GPU delegate...")
-
-            val modelBuffer = loadModelFile()
-
-            val options = InterpreterApi.Options()
-                .setRuntime(TfLiteRuntime.FROM_APPLICATION_ONLY)
-                .addDelegateFactory(GpuDelegateFactory())
-
-            interpreter = InterpreterApi.create(modelBuffer, options)
-            actualBackend = "GPU (Mali-G68 MP5)"
-
-            FileLogger.i(TAG, "✓ Hand Detector ready on GPU")
-            Log.d(TAG, "✓ Model loaded on GPU")
-
-        } catch (e: Exception) {
-            FileLogger.e(TAG, "GPU loading failed, falling back to CPU", e)
-            loadModelWithCpu()
-        }
-    }
-
-    /**
-     * Load model with CPU fallback
-     */
-    private fun loadModelWithCpu() {
-        try {
-            FileLogger.d(TAG, "Loading model on CPU...")
-
-            val modelBuffer = loadModelFile()
-
-            val options = InterpreterApi.Options()
-                .setRuntime(TfLiteRuntime.FROM_APPLICATION_ONLY)
-                .setNumThreads(4)
-
-            interpreter = InterpreterApi.create(modelBuffer, options)
-            actualBackend = "CPU (4 threads)"
-
-            FileLogger.i(TAG, "✓ Hand Detector ready on CPU")
-            Log.d(TAG, "✓ Model loaded on CPU")
-
-        } catch (e: Exception) {
-            FileLogger.e(TAG, "Model loading failed!", e)
-            throw e
-        }
-    }
-
-    /**
-     * Load model file from assets
-     */
-    private fun loadModelFile(): ByteBuffer {
-        val fileDescriptor = context.assets.openFd(MODEL_NAME)
-        val inputStream = java.io.FileInputStream(fileDescriptor.fileDescriptor)
-        val fileChannel = inputStream.channel
-        val startOffset = fileDescriptor.startOffset
-        val declaredLength = fileDescriptor.declaredLength
-        return fileChannel.map(
-            java.nio.channels.FileChannel.MapMode.READ_ONLY,
-            startOffset,
-            declaredLength
-        )
-    }
-
-    /**
-     * Detect hand in image
+     * Detect hand in bitmap
      */
     fun detectHand(bitmap: Bitmap): DetectionResult? {
-        val interp = interpreter ?: run {
-            FileLogger.e(TAG, "Interpreter not initialized!")
-            return null
-        }
-
         try {
-            // CRITICAL: Create TensorImage with FLOAT32 type (model expects this!)
-            var tensorImage = TensorImage(org.tensorflow.lite.DataType.FLOAT32)
+            // Preprocess - convert to FLOAT32 and normalize to [0, 1]
+            val tensorImage = TensorImage(org.tensorflow.lite.DataType.FLOAT32)
             tensorImage.load(bitmap)
-
-            // Apply preprocessing (resize to 256x256 + normalize)
-            tensorImage = imageProcessor.process(tensorImage)
+            val processedImage = imageProcessor.process(tensorImage)
 
             // Prepare output buffers
-            // Model outputs: boxes=[1, 2944, 18], scores=[1, 2944, 1]
             val outputBoxes = Array(1) { Array(NUM_ANCHORS) { FloatArray(18) } }
-            val outputScores = Array(1) { Array(NUM_ANCHORS) { FloatArray(1) } }  // Changed to match [1, 2944, 1]
+            val outputScores = Array(1) { Array(NUM_ANCHORS) { FloatArray(1) } }
 
+            // Output mapping
             val outputs = mapOf(
                 0 to outputBoxes,
                 1 to outputScores
             )
 
             // Run inference
-            interp.runForMultipleInputsOutputs(
-                arrayOf(tensorImage.buffer),
+            interpreter?.runForMultipleInputsOutputs(
+                arrayOf(processedImage.buffer),
                 outputs
             )
 
-            // Process detections
-            // Flatten scores from [2944, 1] to [2944]
-            val scoresFlat = FloatArray(NUM_ANCHORS) { i -> outputScores[0][i][0] }
+            // Decode boxes
+            val detections = mutableListOf<Detection>()
+            for (i in 0 until NUM_ANCHORS) {
+                val rawScore = outputScores[0][i][0]
+                val score = sigmoid(rawScore)
 
-            val detection = processDetections(
-                outputBoxes[0],
-                scoresFlat,
-                bitmap.width,
-                bitmap.height
+                if (score > DETECTION_THRESHOLD) {
+                    val box = decodeBox(outputBoxes[0][i], anchors[i])
+                    detections.add(Detection(box, score))
+                }
+            }
+
+            if (detections.isEmpty()) {
+                return null
+            }
+
+            // Apply NMS
+            val nmsDetections = nonMaxSuppression(detections, iouThreshold = 0.3f)
+
+            if (nmsDetections.isEmpty()) {
+                return null
+            }
+
+            // Return best detection
+            val best = nmsDetections.maxByOrNull { it.score }!!
+
+            // Convert to image coordinates
+            val scaledBox = floatArrayOf(
+                best.box[0] * bitmap.width,
+                best.box[1] * bitmap.height,
+                best.box[2] * bitmap.width,
+                best.box[3] * bitmap.height
             )
 
-            return detection
+            return DetectionResult(scaledBox, best.score)
 
         } catch (e: Exception) {
-            FileLogger.e(TAG, "Detection failed", e)
+            FileLogger.e(TAG, "Detection failed: ${e.message}")
             return null
         }
     }
 
     /**
-     * Process raw detections with NMS
-     */
-    private fun processDetections(
-        boxes: Array<FloatArray>,
-        scores: FloatArray,
-        imageWidth: Int,
-        imageHeight: Int
-    ): DetectionResult? {
-
-        val detections = mutableListOf<Detection>()
-
-        // Collect detections above threshold
-        for (i in scores.indices) {
-            val score = sigmoid(scores[i])
-            if (score > 0.5f) {
-                val anchor = anchors[i]
-                val box = decodeBox(boxes[i], anchor, imageWidth, imageHeight)
-                detections.add(Detection(box, score))
-            }
-        }
-
-        if (detections.isEmpty()) return null
-
-        // Apply NMS
-        val nmsDetections = applyNMS(detections, 0.3f)
-
-        return nmsDetections.maxByOrNull { it.score }?.let {
-            DetectionResult(it.box, it.score)
-        }
-    }
-
-    /**
-     * Generate anchors for SSD detector
-     * MediaPipe Palm Detection spec: [(8,2),(16,2),(32,6)]
-     * - Stride 8: 32x32 grid with 2 anchors = 2048
-     * - Stride 16: 16x16 grid with 2 anchors = 512
-     * - Stride 32: 8x8 grid with 6 anchors = 384
-     * Total: 2944 anchors
+     * Generate anchors (same as Python code)
      */
     private fun generateAnchors(): List<Anchor> {
         val anchors = mutableListOf<Anchor>()
 
-        // MediaPipe Palm Detection anchor configuration
-        // Format: (stride, num_anchors_per_location)
-        val anchorSpec = listOf(
-            Pair(8, 2),   // 32x32 grid, 2 anchors per location
-            Pair(16, 2),  // 16x16 grid, 2 anchors per location
-            Pair(32, 6)   // 8x8 grid, 6 anchors per location
-        )
-
-        // Different scales for each anchor at a location
-        val scalesByStride = mapOf(
-            8 to floatArrayOf(0.1484375f, 0.2109375f),
-            16 to floatArrayOf(0.3f, 0.4f),
-            32 to floatArrayOf(0.5f, 0.6f, 0.7f, 0.8f, 0.9f, 1.0f)
-        )
-
-        for ((stride, numAnchors) in anchorSpec) {
-            val featureMapSize = INPUT_SIZE / stride
-            val scales = scalesByStride[stride] ?: floatArrayOf(0.5f)
-
-            for (y in 0 until featureMapSize) {
-                for (x in 0 until featureMapSize) {
-                    // Normalize coordinates to [0, 1]
-                    val xCenter = (x + 0.5f) * stride / INPUT_SIZE
-                    val yCenter = (y + 0.5f) * stride / INPUT_SIZE
-
-                    // Add anchors with different scales
-                    for (i in 0 until numAnchors) {
-                        val scale = scales[i % scales.size]
-                        anchors.add(Anchor(xCenter, yCenter, scale, scale))
-                    }
-                }
+        // Stride 8: 16×16 grid = 2048 anchors
+        for (y in 0 until 16) {
+            for (x in 0 until 16) {
+                val cx = (x + 0.5f) * 8 / INPUT_SIZE
+                val cy = (y + 0.5f) * 8 / INPUT_SIZE
+                anchors.add(Anchor(cx, cy, 1.0f, 1.0f))
             }
         }
 
-        FileLogger.d(TAG, "✓ Generated ${anchors.size} anchors (expected: $NUM_ANCHORS)")
+        // Stride 16: 8×8 grid = 512 anchors (2 per cell)
+        for (y in 0 until 8) {
+            for (x in 0 until 8) {
+                val cx = (x + 0.5f) * 16 / INPUT_SIZE
+                val cy = (y + 0.5f) * 16 / INPUT_SIZE
+                anchors.add(Anchor(cx, cy, 1.0f, 1.0f))
+                anchors.add(Anchor(cx, cy, 1.0f, 1.0f))
+            }
+        }
 
-        if (anchors.size != NUM_ANCHORS) {
-            FileLogger.e(TAG, "⚠️ CRITICAL: Anchor mismatch! Generated ${anchors.size} != $NUM_ANCHORS")
+        // Stride 32: 4×4 grid = 384 anchors (6 per cell)
+        for (y in 0 until 4) {
+            for (x in 0 until 4) {
+                val cx = (x + 0.5f) * 32 / INPUT_SIZE
+                val cy = (y + 0.5f) * 32 / INPUT_SIZE
+                repeat(6) {
+                    anchors.add(Anchor(cx, cy, 1.0f, 1.0f))
+                }
+            }
         }
 
         return anchors
     }
 
     /**
-     * Decode box from anchor
+     * Decode box from model output
      */
-    private fun decodeBox(
-        boxData: FloatArray,
-        anchor: Anchor,
-        imageWidth: Int,
-        imageHeight: Int
-    ): FloatArray {
-        val cx = boxData[0] / INPUT_SIZE * anchor.w + anchor.x
-        val cy = boxData[1] / INPUT_SIZE * anchor.h + anchor.y
-        val w = boxData[2] / INPUT_SIZE * anchor.w
-        val h = boxData[3] / INPUT_SIZE * anchor.h
+    private fun decodeBox(raw: FloatArray, anchor: Anchor): FloatArray {
+        val DECODE_SCALE = INPUT_SIZE.toFloat()
 
-        // Convert to pixel coordinates
-        val xMin = (cx - w / 2) * imageWidth
-        val yMin = (cy - h / 2) * imageHeight
-        val xMax = (cx + w / 2) * imageWidth
-        val yMax = (cy + h / 2) * imageHeight
+        val cx = raw[0] / DECODE_SCALE + anchor.x
+        val cy = raw[1] / DECODE_SCALE + anchor.y
+        val w = raw[2] / DECODE_SCALE
+        val h = raw[3] / DECODE_SCALE
 
-        // Extract keypoints (7 hand keypoints)
-        val keypoints = FloatArray(14)
-        for (i in 0 until 7) {
-            keypoints[i * 2] = (boxData[4 + i * 2] / INPUT_SIZE * anchor.w + anchor.x) * imageWidth
-            keypoints[i * 2 + 1] = (boxData[5 + i * 2] / INPUT_SIZE * anchor.h + anchor.y) * imageHeight
-        }
-
-        return floatArrayOf(xMin, yMin, xMax, yMax, *keypoints)
+        return floatArrayOf(
+            cx - w / 2,  // x_min
+            cy - h / 2,  // y_min
+            cx + w / 2,  // x_max
+            cy + h / 2   // y_max
+        )
     }
 
     /**
-     * Apply Non-Maximum Suppression
+     * Non-maximum suppression
      */
-    private fun applyNMS(detections: List<Detection>, iouThreshold: Float): List<Detection> {
+    private fun nonMaxSuppression(
+        detections: List<Detection>,
+        iouThreshold: Float
+    ): List<Detection> {
         val sorted = detections.sortedByDescending { it.score }
         val selected = mutableListOf<Detection>()
 
-        for (detection in sorted) {
-            var shouldKeep = true
-
-            for (kept in selected) {
-                val iou = calculateIoU(detection.box, kept.box)
-                if (iou > iouThreshold) {
-                    shouldKeep = false
+        for (det in sorted) {
+            var shouldSelect = true
+            for (sel in selected) {
+                if (computeIoU(det.box, sel.box) > iouThreshold) {
+                    shouldSelect = false
                     break
                 }
             }
-
-            if (shouldKeep) {
-                selected.add(detection)
+            if (shouldSelect) {
+                selected.add(det)
             }
         }
 
@@ -346,9 +265,9 @@ class HandDetectorGPU(private val context: Context) {
     }
 
     /**
-     * Calculate Intersection over Union
+     * Compute Intersection over Union
      */
-    private fun calculateIoU(box1: FloatArray, box2: FloatArray): Float {
+    private fun computeIoU(box1: FloatArray, box2: FloatArray): Float {
         val x1 = maxOf(box1[0], box2[0])
         val y1 = maxOf(box1[1], box2[1])
         val x2 = minOf(box1[2], box2[2])
@@ -367,7 +286,9 @@ class HandDetectorGPU(private val context: Context) {
     /**
      * Sigmoid activation
      */
-    private fun sigmoid(x: Float): Float = 1.0f / (1.0f + Math.exp(-x.toDouble()).toFloat())
+    private fun sigmoid(x: Float): Float {
+        return 1.0f / (1.0f + exp(-x))
+    }
 
     /**
      * Get backend info
@@ -379,13 +300,33 @@ class HandDetectorGPU(private val context: Context) {
      */
     fun close() {
         interpreter?.close()
+        interpreter = null
         FileLogger.i(TAG, "✓ Hand Detector closed")
     }
 }
 
 /**
- * Data classes
+ * Anchor for SSD-style detection
  */
-data class Anchor(val x: Float, val y: Float, val w: Float, val h: Float)
-data class Detection(val box: FloatArray, val score: Float)
-data class DetectionResult(val box: FloatArray, val score: Float)
+data class Anchor(
+    val x: Float,
+    val y: Float,
+    val w: Float,
+    val h: Float
+)
+
+/**
+ * Detection box with confidence
+ */
+data class Detection(
+    val box: FloatArray,  // [x_min, y_min, x_max, y_max] in [0,1]
+    val score: Float
+)
+
+/**
+ * Detection result in image coordinates
+ */
+data class DetectionResult(
+    val box: FloatArray,  // [x_min, y_min, x_max, y_max] in pixels
+    val score: Float
+)
