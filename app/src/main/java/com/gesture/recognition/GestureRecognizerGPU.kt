@@ -192,14 +192,14 @@ class GestureRecognizerGPU(private val context: Context) {
     /**
      * Create ROI from detection
      */
-    private fun createROIFromDetection(
+        private fun createROIFromDetection(
         detection: DetectionResult,
         imageWidth: Int,
         imageHeight: Int
     ): HandTrackingROI {
         val box = detection.box
 
-        // Python: SCALE_X = 2.9, SCALE_Y = 2.9, SHIFT_X = 0.0, SHIFT_Y = -0.5
+        // MediaPipe ROI expansion constants (from Python reference)
         val SCALE_X = 2.9f
         val SCALE_Y = 2.9f
         val SHIFT_X = 0.0f
@@ -211,16 +211,18 @@ class GestureRecognizerGPU(private val context: Context) {
         val bw = box[2] - box[0]  // box width
         val bh = box[3] - box[1]  // box height
 
-        // Center of box (relative to box)
+        // Center of box
         val rx = bx + bw / 2
         val ry = by + bh / 2
 
-        // Python: cx_a = (rx + bw * SHIFT_X) * fw (where fw = imageWidth, but already in pixels)
-        // Since box is already in pixels, we don't need to multiply by fw/fh again
+        // Apply shifts to center
+        // Python: cx_a = (rx + bw * SHIFT_X) * fw
+        // Since box is already in pixels, we don't multiply by imageWidth again
         val cx_a = rx + bw * SHIFT_X
         val cy_a = ry + bh * SHIFT_Y
 
         // ROI size: use the larger dimension and scale by SCALE_X/SCALE_Y
+        // This ensures we capture the entire hand including fingers
         val ls = maxOf(bw, bh)
         val w_a = ls * SCALE_X
         val h_a = ls * SCALE_Y
@@ -230,9 +232,10 @@ class GestureRecognizerGPU(private val context: Context) {
             centerY = cy_a,
             roiWidth = w_a,
             roiHeight = h_a,
-            rotation = 0f  // We can add rotation later if needed
+            rotation = 0f  // MediaPipe uses rotation from keypoints, but 0 works for most cases
         )
     }
+
 
     /**
      * Flatten landmarks array
