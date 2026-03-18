@@ -257,27 +257,46 @@ class HandLandmarkDetectorGPU(private val context: Context) {
      * Unproject landmarks from ROI back to original frame
      */
     private fun unprojectLandmarks(
-        landmarks: Array<FloatArray>,  // Changed: [21, 3] instead of flat [63]
+        landmarks: FloatArray,  // Flattened [63] from model output
         roi: HandTrackingROI,
         imageWidth: Int,
         imageHeight: Int
     ): Array<FloatArray> {
         val result = Array(NUM_LANDMARKS) { FloatArray(3) }
 
+        // Log ROI info for first landmark only
+        FileLogger.d(TAG, "ROI Info: center=(%.1f, %.1f), size=(%.1f, %.1f), rotation=%.2f"
+            .format(roi.centerX, roi.centerY, roi.roiWidth, roi.roiHeight, roi.rotation))
+
         for (i in 0 until NUM_LANDMARKS) {
-            // Landmarks are in [0, 1] normalized coordinates from model
-            val x = landmarks[i][0]
-            val y = landmarks[i][1]
-            val z = landmarks[i][2]
+            // Extract landmark - landmarks are already in [0,1] normalized space from model
+            val xNorm = landmarks[i * 3]      // Already [0,1]
+            val yNorm = landmarks[i * 3 + 1]  // Already [0,1]
+            val z = landmarks[i * 3 + 2]
 
-            // Map back to ROI coordinates (landmarks are already normalized [0,1])
-            val xNorm = x
-            val yNorm = y
+            // Log first landmark (wrist) raw values
+            if (i == 0) {
+                FileLogger.d(TAG, "Wrist raw from model: x=%.4f, y=%.4f, z=%.4f"
+                    .format(xNorm, yNorm, z))
+            }
 
-            // Map to original image coordinates
-            result[i][0] = (roi.centerX - roi.roiWidth / 2 + xNorm * roi.roiWidth)
-            result[i][1] = (roi.centerY - roi.roiHeight / 2 + yNorm * roi.roiHeight)
+            // Simple transformation (no rotation for now)
+            // Map from [0,1] ROI space to image pixel coordinates
+            val roiLeft = roi.centerX - roi.roiWidth / 2
+            val roiTop = roi.centerY - roi.roiHeight / 2
+
+            val xPixel = roiLeft + xNorm * roi.roiWidth
+            val yPixel = roiTop + yNorm * roi.roiHeight
+
+            result[i][0] = xPixel
+            result[i][1] = yPixel
             result[i][2] = z * roi.roiWidth  // Scale z relative to ROI size
+
+            // Log first landmark (wrist) final values
+            if (i == 0) {
+                FileLogger.d(TAG, "Wrist unprojected: x=%.1f, y=%.1f (image: %dx%d)"
+                    .format(xPixel, yPixel, imageWidth, imageHeight))
+            }
         }
 
         return result
