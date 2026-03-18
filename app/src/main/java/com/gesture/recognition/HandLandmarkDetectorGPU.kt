@@ -147,39 +147,37 @@ class HandLandmarkDetectorGPU(private val context: Context) {
     }
 
     /**
-     * Detect hand landmarks in ROI
-     */
-    /**
      * Detect hand landmarks from cropped ROI
-     * CORRECTED VERSION - with proper type handling for 3D output buffer
+     * CORRECTED VERSION - uses warpAffineROI and proper type handling
      */
     fun detectLandmarks(
         bitmap: Bitmap,
         roi: HandTrackingROI
     ): LandmarkResult? {
         try {
-            // Crop and warp ROI
-            val warpedBitmap = cropROI(bitmap, roi)
+            // Crop and warp ROI to 256x256
+            val warpedBitmap = warpAffineROI(bitmap, roi, INPUT_SIZE, INPUT_SIZE)
 
-            // Preprocess image
-            var tensorImage = TensorImage.fromBitmap(warpedBitmap)
-            tensorImage = imageProcessor.process(tensorImage)
+            // Preprocess image - convert to TensorImage with FLOAT32
+            val tensorImage = TensorImage(org.tensorflow.lite.DataType.FLOAT32)
+            tensorImage.load(warpedBitmap)
+            val processedImage = imageProcessor.process(tensorImage)
 
-            // Prepare output buffers - CORRECT SHAPES
+            // Prepare output buffers - CORRECT SHAPES matching Python
             val outputLandmarks = Array(1) { Array(NUM_LANDMARKS) { FloatArray(3) } }  // [1, 21, 3]
             val outputScores = FloatArray(1)  // [1] - presence score
             val outputHandedness = FloatArray(1)  // [1] - left/right score
 
-            // Output mapping - VERIFIED from Python
+            // Output mapping - VERIFIED from Python code (line 208)
             val outputs = mapOf(
-                0 to outputScores,      // presence [1]
-                1 to outputHandedness,  // lr [1]
+                0 to outputScores,      // scores (presence) [1]
+                1 to outputHandedness,  // lr (handedness) [1]
                 2 to outputLandmarks    // landmarks [1, 21, 3]
             )
 
             // Run inference
             interpreter?.runForMultipleInputsOutputs(
-                arrayOf(tensorImage.buffer),
+                arrayOf(processedImage.buffer),
                 outputs
             )
 
@@ -254,9 +252,6 @@ class HandLandmarkDetectorGPU(private val context: Context) {
         )
     }
 
-    /**
-     * Unproject landmarks from ROI back to original frame
-     */
     /**
      * Unproject landmarks from ROI space to image space
      * CORRECTED VERSION - accepts Array<FloatArray> directly from model output

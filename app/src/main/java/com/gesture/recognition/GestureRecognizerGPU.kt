@@ -195,6 +195,9 @@ class GestureRecognizerGPU(private val context: Context) {
         /**
      * Create ROI from detection - MATCHING Python predict_tflite.py logic
      */
+    /**
+     * Create ROI from detection - MATCHING Python predict_tflite.py logic
+     */
     private fun createROIFromDetection(
         detection: DetectionResult,
         imageWidth: Int,
