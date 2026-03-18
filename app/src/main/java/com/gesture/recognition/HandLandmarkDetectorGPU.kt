@@ -149,72 +149,73 @@ class HandLandmarkDetectorGPU(private val context: Context) {
     /**
      * Detect hand landmarks in ROI
      */
-    fun detectLandmarks(bitmap: Bitmap, roi: HandTrackingROI): LandmarkResult? {
-        val interp = interpreter ?: run {
-            FileLogger.e(TAG, "Interpreter not initialized!")
-            return null
-        }
-
+    /**
+     * Detect hand landmarks from cropped ROI
+     * CORRECTED VERSION - with proper type handling for 3D output buffer
+     */
+    fun detectLandmarks(
+        bitmap: Bitmap,
+        roi: HandTrackingROI
+    ): LandmarkResult? {
         try {
-            // Warp ROI to square
-            val warpedBitmap = warpAffineROI(bitmap, roi, INPUT_SIZE, INPUT_SIZE)
+            // Crop and warp ROI
+            val warpedBitmap = cropROI(bitmap, roi)
 
-            // Preprocess image - CRITICAL: Use FLOAT32 tensor type
-            var tensorImage = TensorImage(org.tensorflow.lite.DataType.FLOAT32)
-            tensorImage.load(warpedBitmap)
+            // Preprocess image
+            var tensorImage = TensorImage.fromBitmap(warpedBitmap)
             tensorImage = imageProcessor.process(tensorImage)
 
-            // Prepare output buffers
-            // MediaPipe hand landmark model ACTUAL output order (verified from Python):
-            // out_idx[0]: "scores" (presence) [1] - hand presence confidence
-            // out_idx[1]: "lr" (handedness) [1] - left/right classification
-            // out_idx[2]: "ld" (landmarks) [1, 21, 3] - 21 landmarks × 3 coords (NOT flattened!)
+            // Prepare output buffers - CORRECT SHAPES
+            val outputLandmarks = Array(1) { Array(NUM_LANDMARKS) { FloatArray(3) } }  // [1, 21, 3]
             val outputScores = FloatArray(1)  // [1] - presence score
             val outputHandedness = FloatArray(1)  // [1] - left/right score
-            val outputLandmarks = Array(1) { Array(NUM_LANDMARKS) { FloatArray(3) } }  // [1, 21, 3]
 
+            // Output mapping - VERIFIED from Python
             val outputs = mapOf(
-                0 to outputScores,      // CORRECT: presence score first
-                1 to outputHandedness,  // CORRECT: handedness second
-                2 to outputLandmarks    // CORRECT: landmarks third [1, 21, 3]
+                0 to outputScores,      // presence [1]
+                1 to outputHandedness,  // lr [1]
+                2 to outputLandmarks    // landmarks [1, 21, 3]
             )
 
             // Run inference
-            interp.runForMultipleInputsOutputs(
+            interpreter?.runForMultipleInputsOutputs(
                 arrayOf(tensorImage.buffer),
                 outputs
             )
 
-            val presenceScore = outputScores[0]
+            val presence = outputScores[0]
+            val handedness = if (outputHandedness[0] > 0.5f) "Right" else "Left"
 
-            if (presenceScore < 0.5f) {
-                FileLogger.d(TAG, "Hand presence too low: $presenceScore")
+            // Check presence threshold
+            if (presence < 0.5f) {
+                FileLogger.d(TAG, "Hand presence too low: $presence")
                 return null
             }
 
-            // Unproject landmarks back to original image coordinates
-            val landmarksInFrame = unprojectLandmarks(
-                outputLandmarks[0],
+            FileLogger.d(TAG, "✓ Landmarks detected! Handedness: $handedness, Presence: $presence")
+
+            // Unproject landmarks from ROI to image space
+            // Pass outputLandmarks[0] which is Array<FloatArray> of shape [21, 3]
+            val unprojectedLandmarks = unprojectLandmarks(
+                outputLandmarks[0],  // Extract [21, 3] from [1, 21, 3]
                 roi,
                 bitmap.width,
                 bitmap.height
             )
 
-            val handedness = if (outputHandedness[0] > 0.5f) "Right" else "Left"
-
-            FileLogger.d(TAG, "✓ Landmarks detected! Handedness: $handedness, Presence: $presenceScore")
-
             return LandmarkResult(
-                landmarksInFrame,
-                presenceScore,
-                handedness
+                landmarks = unprojectedLandmarks,
+                presence = presence,
+                handedness = handedness
             )
 
         } catch (e: Exception) {
-            FileLogger.e(TAG, "Landmark detection failed", e)
+            FileLogger.e(TAG, "Landmark detection failed: ${e.message}")
+            e.printStackTrace()
             return null
         }
     }
+
 
     /**
      * Warp ROI using affine transformation
@@ -256,23 +257,27 @@ class HandLandmarkDetectorGPU(private val context: Context) {
     /**
      * Unproject landmarks from ROI back to original frame
      */
+    /**
+     * Unproject landmarks from ROI space to image space
+     * CORRECTED VERSION - accepts Array<FloatArray> directly from model output
+     */
     private fun unprojectLandmarks(
-        landmarks: FloatArray,  // Flattened [63] from model output
+        landmarks: Array<FloatArray>,  // Direct from model: [21, 3] - NOT flattened!
         roi: HandTrackingROI,
         imageWidth: Int,
         imageHeight: Int
     ): Array<FloatArray> {
         val result = Array(NUM_LANDMARKS) { FloatArray(3) }
 
-        // Log ROI info for first landmark only
+        // Log ROI info for debugging (only once per detection)
         FileLogger.d(TAG, "ROI Info: center=(%.1f, %.1f), size=(%.1f, %.1f), rotation=%.2f"
             .format(roi.centerX, roi.centerY, roi.roiWidth, roi.roiHeight, roi.rotation))
 
         for (i in 0 until NUM_LANDMARKS) {
             // Extract landmark - landmarks are already in [0,1] normalized space from model
-            val xNorm = landmarks[i * 3]      // Already [0,1]
-            val yNorm = landmarks[i * 3 + 1]  // Already [0,1]
-            val z = landmarks[i * 3 + 2]
+            val xNorm = landmarks[i][0]  // Already [0,1]
+            val yNorm = landmarks[i][1]  // Already [0,1]
+            val z = landmarks[i][2]
 
             // Log first landmark (wrist) raw values
             if (i == 0) {
