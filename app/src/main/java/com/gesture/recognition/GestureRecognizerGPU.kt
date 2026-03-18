@@ -248,6 +248,7 @@ class GestureRecognizerGPU(private val context: Context) {
         return result
     }
 
+
     /**
      * Get backend info
      */

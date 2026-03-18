@@ -316,6 +316,7 @@ class HandLandmarkDetectorGPU(private val context: Context) {
     }
 }
 
+
 /**
  * Landmark detection result
  */
