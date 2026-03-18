@@ -288,13 +288,24 @@ class MainActivity : AppCompatActivity() {
         frameCount++
 
         try {
-            // Convert ImageProxy to Bitmap
-            val bitmap = imageProxyToBitmap(imageProxy)
+            // Convert ImageProxy to Bitmap (may be rotated to 1088x1088 or other size)
+            val rawBitmap = imageProxyToBitmap(imageProxy)
+
+            // ✅ RESIZE to target resolution for consistent coordinate space
+            val bitmap = Bitmap.createScaledBitmap(rawBitmap, 640, 480, true)
+
+            // Clean up raw bitmap to avoid memory leak
+            if (rawBitmap != bitmap) {
+                rawBitmap.recycle()
+            }
+
+            // Now bitmap is guaranteed to be 640x480
+            // All detection and landmarks will be in 640x480 space
 
             // Recognize gesture
             val result = gestureRecognizer?.recognize(bitmap)
 
-            // Update UI and log
+            // Update UI - now we know dimensions are always 640x480
             result?.let { updateUI(it) }
 
             // Update FPS
@@ -351,7 +362,7 @@ class MainActivity : AppCompatActivity() {
      */
     private fun updateUI(result: GestureResult) {
         runOnUiThread {
-            // Update gesture overlay with CORRECT image dimensions (640x480 camera)
+            // Now we can confidently use 640x480 because we resized the bitmap
             gestureOverlay.updateData(
                 result = result,
                 landmarks = gestureRecognizer?.latestLandmarks,
@@ -359,8 +370,8 @@ class MainActivity : AppCompatActivity() {
                 frameCount = frameCount,
                 bufferSize = (result.bufferProgress * 15).toInt(),
                 handDetected = result.handDetected,
-                imageWidth = 640,
-                imageHeight = 480,
+                imageWidth = 640,    // ✅ Guaranteed by resize
+                imageHeight = 480,   // ✅ Guaranteed by resize
                 rotation = 270,
                 mirrorHorizontal = true
             )
