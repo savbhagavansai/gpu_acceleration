@@ -168,15 +168,15 @@ class HandLandmarkDetectorGPU(private val context: Context) {
             // MediaPipe hand landmark model ACTUAL output order (verified from Python):
             // out_idx[0]: "scores" (presence) [1] - hand presence confidence
             // out_idx[1]: "lr" (handedness) [1] - left/right classification
-            // out_idx[2]: "ld" (landmarks) [1, 63] - 21 landmarks × 3 coords
+            // out_idx[2]: "ld" (landmarks) [1, 21, 3] - 21 landmarks × 3 coords (NOT flattened!)
             val outputScores = FloatArray(1)  // [1] - presence score
             val outputHandedness = FloatArray(1)  // [1] - left/right score
-            val outputLandmarks = Array(1) { FloatArray(NUM_LANDMARKS * 3) }  // [1, 63]
+            val outputLandmarks = Array(1) { Array(NUM_LANDMARKS) { FloatArray(3) } }  // [1, 21, 3]
 
             val outputs = mapOf(
                 0 to outputScores,      // CORRECT: presence score first
                 1 to outputHandedness,  // CORRECT: handedness second
-                2 to outputLandmarks    // CORRECT: landmarks third
+                2 to outputLandmarks    // CORRECT: landmarks third [1, 21, 3]
             )
 
             // Run inference
@@ -257,7 +257,7 @@ class HandLandmarkDetectorGPU(private val context: Context) {
      * Unproject landmarks from ROI back to original frame
      */
     private fun unprojectLandmarks(
-        landmarks: FloatArray,
+        landmarks: Array<FloatArray>,  // Changed: [21, 3] instead of flat [63]
         roi: HandTrackingROI,
         imageWidth: Int,
         imageHeight: Int
@@ -265,19 +265,19 @@ class HandLandmarkDetectorGPU(private val context: Context) {
         val result = Array(NUM_LANDMARKS) { FloatArray(3) }
 
         for (i in 0 until NUM_LANDMARKS) {
-            // Landmarks are in [0, 256] pixel coordinates
-            val x = landmarks[i * 3]
-            val y = landmarks[i * 3 + 1]
-            val z = landmarks[i * 3 + 2]
+            // Landmarks are in [0, 1] normalized coordinates from model
+            val x = landmarks[i][0]
+            val y = landmarks[i][1]
+            val z = landmarks[i][2]
 
-            // Map back to ROI coordinates
-            val xNorm = x / INPUT_SIZE
-            val yNorm = y / INPUT_SIZE
+            // Map back to ROI coordinates (landmarks are already normalized [0,1])
+            val xNorm = x
+            val yNorm = y
 
             // Map to original image coordinates
             result[i][0] = (roi.centerX - roi.roiWidth / 2 + xNorm * roi.roiWidth)
             result[i][1] = (roi.centerY - roi.roiHeight / 2 + yNorm * roi.roiHeight)
-            result[i][2] = z / INPUT_SIZE * roi.roiWidth  // Scale z relative to ROI size
+            result[i][2] = z * roi.roiWidth  // Scale z relative to ROI size
         }
 
         return result
