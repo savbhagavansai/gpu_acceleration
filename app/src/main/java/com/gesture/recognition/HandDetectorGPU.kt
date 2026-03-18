@@ -67,6 +67,17 @@ class HandDetectorGPU(private val context: Context) {
                 FileLogger.e(TAG, "GPU delegate not available: ${e.message}")
             }
 
+            // Load model as ByteBuffer
+            val modelBuffer = context.assets.openFd(MODEL_NAME).use { fileDescriptor ->
+                val inputStream = fileDescriptor.createInputStream()
+                val modelBytes = inputStream.readBytes()
+                inputStream.close()
+                java.nio.ByteBuffer.allocateDirect(modelBytes.size).apply {
+                    put(modelBytes)
+                    rewind()
+                }
+            }
+
             // Try GPU first
             if (isGpuAvailable) {
                 FileLogger.d(TAG, "Loading model with GPU delegate...")
@@ -75,12 +86,7 @@ class HandDetectorGPU(private val context: Context) {
                         .setRuntime(TfLiteRuntime.FROM_SYSTEM_ONLY)
                         .addDelegateFactory(GpuDelegateFactory())
 
-                    interpreter = InterpreterApi.create(
-                        context.assets.openFd(MODEL_NAME).use { fileDescriptor ->
-                            fileDescriptor.createInputStream().readBytes()
-                        },
-                        options
-                    )
+                    interpreter = InterpreterApi.create(modelBuffer, options)
                     actualBackend = "GPU"
                     FileLogger.i(TAG, "✓ Hand Detector ready on GPU")
                     return@continueWith true
@@ -96,12 +102,7 @@ class HandDetectorGPU(private val context: Context) {
                 val options = InterpreterApi.Options()
                     .setRuntime(TfLiteRuntime.FROM_SYSTEM_ONLY)
 
-                interpreter = InterpreterApi.create(
-                    context.assets.openFd(MODEL_NAME).use { fileDescriptor ->
-                        fileDescriptor.createInputStream().readBytes()
-                    },
-                    options
-                )
+                interpreter = InterpreterApi.create(modelBuffer, options)
                 actualBackend = "CPU"
                 FileLogger.i(TAG, "✓ Hand Detector ready on CPU")
                 true

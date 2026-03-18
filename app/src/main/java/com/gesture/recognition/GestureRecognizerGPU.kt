@@ -16,11 +16,6 @@ import com.google.android.gms.tasks.Tasks
  * 5. Sequence Buffering (15 frames)
  * 6. Gesture Classification (ONNX TCN model)
  * 7. Prediction Smoothing
- *
- * Performance:
- * - Detection mode: ~50ms (detector + landmarks)
- * - Tracking mode: ~20ms (landmarks only, no detector!)
- * - Average: ~25ms (mostly tracking)
  */
 class GestureRecognizerGPU(private val context: Context) {
 
@@ -51,7 +46,7 @@ class GestureRecognizerGPU(private val context: Context) {
         landmarkDetector = HandLandmarkDetectorGPU(context)
         onnxInference = ONNXInference(context)
         sequenceBuffer = SequenceBuffer(Config.SEQUENCE_LENGTH)
-        predictionSmoother = PredictionSmoother(historySize = 5)
+        predictionSmoother = PredictionSmoother(windowSize = 5)  // ✅ FIXED: windowSize parameter
 
         FileLogger.d(TAG, "✓ Gesture Recognizer ready")
     }
@@ -77,7 +72,6 @@ class GestureRecognizerGPU(private val context: Context) {
     /**
      * Build tracking ROI from previous landmarks
      * Much faster than running hand detection!
-     * Adapted from HandTrackingROI.kt
      */
     private fun createTrackingROI(
         landmarks: Array<FloatArray>,
@@ -284,8 +278,8 @@ class GestureRecognizerGPU(private val context: Context) {
 
             // ── STAGE 3: Gesture recognition ──
 
-            // Normalize landmarks
-            val normalized = normalizeLandmarks(landmarkResult.landmarks, bitmap.width, bitmap.height)
+            // Normalize landmarks (flatten to FloatArray first)
+            val normalized = normalizeLandmarks(landmarkResult.landmarks)
 
             // Add to sequence buffer
             sequenceBuffer.add(normalized)
@@ -311,16 +305,38 @@ class GestureRecognizerGPU(private val context: Context) {
             // Run gesture classification
             val gestureStart = System.nanoTime()
             val sequence = sequenceBuffer.getSequence()
-            val (gesture, confidence, allProbs) = onnxInference.predict(sequence)
+            val prediction = onnxInference.predict(sequence)  // ✅ FIXED: Returns Pair<Int, FloatArray>?
             val gestureTime = (System.nanoTime() - gestureStart) / 1_000_000.0
 
+            if (prediction == null) {
+                return GestureResult(
+                    gesture = "unknown",
+                    confidence = 0.0f,
+                    allProbabilities = FloatArray(11) { 0f },
+                    handDetected = true,
+                    bufferProgress = 1.0f,
+                    isStable = false,
+                    handDetectorTimeMs = detectorTime,
+                    landmarksTimeMs = landmarkTime,
+                    gestureTimeMs = gestureTime,
+                    totalTimeMs = (System.nanoTime() - startTime) / 1_000_000.0,
+                    wasTracking = usedTracking
+                )
+            }
+
+            val (gestureIdx, allProbs) = prediction  // ✅ FIXED: Destructure Pair correctly
+            val confidence = allProbs[gestureIdx]
+            val gestureLabel = Config.IDX_TO_LABEL[gestureIdx] ?: "unknown"
+
             // Smooth prediction
-            val smoothedGesture = predictionSmoother.addPrediction(gesture)
+            predictionSmoother.addPrediction(gestureIdx)
+            val smoothedIdx = predictionSmoother.getSmoothedPrediction()
+            val smoothedLabel = Config.IDX_TO_LABEL[smoothedIdx] ?: "unknown"
 
             val totalTime = (System.nanoTime() - startTime) / 1_000_000.0
 
             return GestureResult(
-                gesture = smoothedGesture,
+                gesture = smoothedLabel,  // ✅ FIXED: Return label string
                 confidence = confidence,
                 allProbabilities = allProbs,
                 handDetected = true,
@@ -342,14 +358,20 @@ class GestureRecognizerGPU(private val context: Context) {
 
     /**
      * Normalize landmarks for gesture recognition
-     * Matches training preprocessing exactly
+     * Flatten Array<FloatArray> to FloatArray first
      */
-    private fun normalizeLandmarks(
-        landmarks: Array<FloatArray>,
-        frameWidth: Int,
-        frameHeight: Int
-    ): FloatArray {
-        return LandmarkNormalizer.normalize(landmarks, frameWidth, frameHeight)
+    private fun normalizeLandmarks(landmarks: Array<FloatArray>): FloatArray {
+        // Flatten landmarks from [21, 3] to [63]
+        val flattened = FloatArray(Config.NUM_FEATURES)
+        var idx = 0
+        for (lm in landmarks) {
+            flattened[idx++] = lm[0]
+            flattened[idx++] = lm[1]
+            flattened[idx++] = lm[2]
+        }
+
+        // Normalize using LandmarkNormalizer
+        return LandmarkNormalizer.normalize(flattened)  // ✅ FIXED: Pass FloatArray
     }
 
     /**

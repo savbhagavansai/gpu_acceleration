@@ -359,6 +359,22 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
+     * Flatten landmarks from Array<FloatArray> to FloatArray for overlay
+     */
+    private fun flattenLandmarks(landmarks: Array<FloatArray>?): FloatArray? {
+        if (landmarks == null) return null
+
+        val flattened = FloatArray(landmarks.size * 3)
+        var idx = 0
+        for (lm in landmarks) {
+            flattened[idx++] = lm[0]
+            flattened[idx++] = lm[1]
+            flattened[idx++] = lm[2]
+        }
+        return flattened
+    }
+
+    /**
      * Update UI with recognition result
      * ✅ FIXED: imageWidth and imageHeight match the 640x480 resize
      */
@@ -367,7 +383,7 @@ class MainActivity : AppCompatActivity() {
             // Update gesture overlay with CORRECT image dimensions (640x480)
             gestureOverlay.updateData(
                 result = result,
-                landmarks = gestureRecognizer?.latestLandmarks,
+                landmarks = flattenLandmarks(gestureRecognizer?.latestLandmarks),  // ✅ FIXED: Flatten to FloatArray
                 fps = currentFps.toFloat(),
                 frameCount = frameCount,
                 bufferSize = (result.bufferProgress * 15).toInt(),
