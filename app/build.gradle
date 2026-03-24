@@ -59,12 +59,15 @@ dependencies {
     // GOOGLE PLAY SERVICES TFLITE (GPU Support) - NEW!
     // Replaces standalone tensorflow-lite and tensorflow-lite-gpu
     // ═══════════════════════════════════════════════════════════════
-    implementation 'com.google.android.gms:play-services-tflite-java:16.4.0'
-    implementation 'com.google.android.gms:play-services-tflite-gpu:16.4.0'
+    //implementation 'com.google.android.gms:play-services-tflite-java:16.4.0'
+    //implementation 'com.google.android.gms:play-services-tflite-gpu:16.4.0'
 
     // TFLite Support (keep for utilities like ImageProcessor)
-    implementation 'org.tensorflow:tensorflow-lite-support:0.4.4'
+    // implementation 'org.tensorflow:tensorflow-lite-support:0.4.4'
 
+    implementation 'org.tensorflow:tensorflow-lite:2.14.0'
+    implementation 'org.tensorflow:tensorflow-lite-gpu:2.14.0'
+    implementation 'org.tensorflow:tensorflow-lite-support:0.4.4'
     // ═══════════════════════════════════════════════════════════════
     // REMOVED - Old standalone TFLite (replaced by Play Services above)
     // ═══════════════════════════════════════════════════════════════

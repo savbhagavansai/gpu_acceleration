@@ -20,6 +20,7 @@ import androidx.core.content.ContextCompat
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import android.content.Intent
 
 class MainActivity : AppCompatActivity() {
 
@@ -59,6 +60,8 @@ class MainActivity : AppCompatActivity() {
 
         setContentView(R.layout.activity_main)
 
+        startActivity(Intent(this, BenchmarkActivity::class.java))
+
         // Initialize UI
         initializeUI()
 
@@ -73,6 +76,11 @@ class MainActivity : AppCompatActivity() {
                 this, REQUIRED_PERMISSIONS, REQUEST_CODE_PERMISSIONS
             )
         }
+
+        //if (BuildConfig.DEBUG) {
+            // Uncomment to run benchmark automatically
+            // startActivity(Intent(this, BenchmarkActivity::class.java))
+        //}
 
         cameraExecutor = Executors.newSingleThreadExecutor()
     }

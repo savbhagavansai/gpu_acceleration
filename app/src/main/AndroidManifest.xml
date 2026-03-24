@@ -24,6 +24,13 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Benchmark Activity for testing NPU/GPU performance -->
+        <activity
+            android:name=".BenchmarkActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:label="Model Benchmark" />
     </application>
 
 </manifest>
